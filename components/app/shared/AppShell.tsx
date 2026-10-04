@@ -39,7 +39,7 @@ export default function AppShell({
     );
   }, [isPending, isPublicRoute, logoutRequested, pathname, session]);
 
-  if (!isPublicRoute && logoutRequested) {
+  if (!isPublicRoute && (isPending || !session || logoutRequested)) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[var(--bg-canvas)] p-6">
         <div className="text-sm text-[var(--text-secondary)]" role="status">
