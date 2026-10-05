@@ -1,17 +1,12 @@
 import { expect, test } from '@playwright/test';
+import { signUpAndSignIn } from './helpers/auth';
 
 test('global Notes supports capture, retrieval, pinning, editing, and deletion', async ({ page }) => {
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   const firstTitle = `Launch notes ${suffix}`;
   const secondTitle = `Reference notes ${suffix}`;
 
-  await page.goto('/auth/signup');
-  await page.getByLabel('Full Name').fill('Notes Workspace Tester');
-  await page.getByLabel('Email').fill(`notes-${suffix}@example.com`);
-  await page.getByLabel('Password', { exact: true }).fill('Rungset-e2e-2026');
-  await page.getByLabel('Confirm Password').fill('Rungset-e2e-2026');
-  await page.getByRole('button', { name: 'Sign up', exact: true }).click();
-  await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 });
+  await signUpAndSignIn(page, 'Notes Workspace Tester', `notes-${suffix}@example.com`);
 
   await page.goto('/notes');
   await expect(page.getByRole('heading', { name: 'Notes', exact: true })).toBeVisible();

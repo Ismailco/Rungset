@@ -1,15 +1,10 @@
 import { expect, test } from '@playwright/test';
+import { signUpAndSignIn } from './helpers/auth';
 
 test('Goals overview keeps filtering and management actions available', async ({ page }) => {
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
-  await page.goto('/auth/signup');
-  await page.getByLabel('Full Name').fill('Goals Overview Tester');
-  await page.getByLabel('Email').fill(`goals-${suffix}@example.com`);
-  await page.getByLabel('Password', { exact: true }).fill('Rungset-e2e-2026');
-  await page.getByLabel('Confirm Password').fill('Rungset-e2e-2026');
-  await page.getByRole('button', { name: 'Sign up', exact: true }).click();
-  await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 });
+  await signUpAndSignIn(page, 'Goals Overview Tester', `goals-${suffix}@example.com`);
 
   await page.getByRole('link', { name: 'Goals', exact: true }).first().click();
   await expect(page).toHaveURL(/\/goals$/);

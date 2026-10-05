@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { finishSignUpAndSignIn } from './helpers/auth';
 
 test('a user can execute, review, preserve, and export a goal plan', async ({ page }) => {
   const consoleErrors: string[] = [];
@@ -25,12 +26,7 @@ test('a user can execute, review, preserve, and export a goal plan', async ({ pa
   await page.getByRole('link', { name: 'Sign up' }).click();
 
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-  await page.getByLabel('Full Name').fill('Browser Tester');
-  await page.getByLabel('Email').fill(`browser-${suffix}@example.com`);
-  await page.getByLabel('Password', { exact: true }).fill('Rungset-e2e-2026');
-  await page.getByLabel('Confirm Password').fill('Rungset-e2e-2026');
-  await page.getByRole('button', { name: 'Sign up', exact: true }).click();
-  await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 });
+  await finishSignUpAndSignIn(page, 'Browser Tester', `browser-${suffix}@example.com`);
   await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'No tasks yet' })).toBeVisible();
 
