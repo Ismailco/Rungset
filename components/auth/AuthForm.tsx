@@ -6,9 +6,14 @@ import { useSearchParams } from "next/navigation";
 import { AlertCircle, Code2, Globe2, X } from "lucide-react";
 import AppLogoFull from "@/components/app/shared/AppLogoFull";
 import { signIn, signUp, useSession } from "@/lib/auth/auth-client";
-import { validateAndSanitizeInput, ValidationResult } from "@/lib/validation";
 import { getAuthError } from "@/lib/auth/auth-errors";
 import { getSafeCallbackUrl } from "@/lib/auth/callback-url";
+import {
+  type AuthFieldName,
+  getAuthFieldError,
+  signInCredentialsSchema,
+  signUpCredentialsSchema,
+} from "@/lib/auth/auth-validation";
 
 interface AuthFormProps {
   mode: "signin" | "signup";
@@ -27,6 +32,7 @@ export function AuthForm({ mode }: AuthFormProps) {
   const [errors, setErrors] = useState<FormErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const requestInProgress = useRef(false);
   const hasStartedNavigation = useRef(false);
   const { data: session, isPending } = useSession();
   const searchParams = useSearchParams();
@@ -44,63 +50,56 @@ export function AuthForm({ mode }: AuthFormProps) {
     if (!isPending && session) goToApp();
   }, [goToApp, isPending, session]);
 
-  const validateField = (name: string, value: string): ValidationResult => {
-    switch (name) {
-      case "name":
-        return validateAndSanitizeInput(value, "title", mode === "signup");
-      case "email":
-        if (!value) return { isValid: false, sanitizedValue: value, error: "Email is required" };
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
-          return { isValid: false, sanitizedValue: value, error: "Please enter a valid email address" };
-        }
-        return { isValid: true, sanitizedValue: value };
-      case "password":
-        if (!value) return { isValid: false, sanitizedValue: value, error: "Password is required" };
-        if (mode === "signup" && value.length < 8) {
-          return { isValid: false, sanitizedValue: value, error: "Password must be at least 8 characters long" };
-        }
-        if (mode === "signup" && !/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(value)) {
-          return { isValid: false, sanitizedValue: value, error: "Password must contain at least one uppercase letter, one lowercase letter, and one number" };
-        }
-        return { isValid: true, sanitizedValue: value };
-      case "passwordConfirm":
-        if (mode === "signup" && !value) return { isValid: false, sanitizedValue: value, error: "Please confirm your password" };
-        if (mode === "signup" && value !== formData.password) return { isValid: false, sanitizedValue: value, error: "Passwords do not match" };
-        return { isValid: true, sanitizedValue: value };
-      default:
-        return { isValid: true, sanitizedValue: value };
-    }
-  };
-
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
-    const result = validateField(name, value);
-    setFormData((previous) => ({ ...previous, [name]: result.sanitizedValue }));
-    setErrors((previous) => ({ ...previous, [name]: result.error }));
+    const field = name as AuthFieldName;
+    const fieldError = getAuthFieldError(field, value, mode, formData.password);
+    setFormData((previous) => ({ ...previous, [name]: value }));
+    setErrors((previous) => {
+      const next = { ...previous, [name]: fieldError };
+      if (name === "password" && mode === "signup" && formData.passwordConfirm) {
+        next.passwordConfirm = getAuthFieldError("passwordConfirm", formData.passwordConfirm, mode, value);
+      }
+      return next;
+    });
+    setError(null);
   };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
 
-    const emailValidation = validateField("email", formData.email);
-    const passwordValidation = validateField("password", formData.password);
-    const nameValidation = mode === "signup" ? validateField("name", formData.name) : { isValid: true, sanitizedValue: "", error: undefined };
-    const passwordConfirmValidation = mode === "signup" ? validateField("passwordConfirm", formData.passwordConfirm) : { isValid: true, sanitizedValue: "", error: undefined };
     const newErrors: FormErrors = {};
-    if (!emailValidation.isValid) newErrors.email = emailValidation.error;
-    if (!passwordValidation.isValid) newErrors.password = passwordValidation.error;
-    if (mode === "signup" && !nameValidation.isValid) newErrors.name = nameValidation.error;
-    if (mode === "signup" && !passwordConfirmValidation.isValid) newErrors.passwordConfirm = passwordConfirmValidation.error;
+    const validation = mode === "signin"
+      ? signInCredentialsSchema.safeParse(formData)
+      : signUpCredentialsSchema.safeParse(formData);
+    if (!validation.success) {
+      for (const issue of validation.error.issues) {
+        const field = issue.path[0];
+        if (typeof field === "string" && !newErrors[field]) newErrors[field] = issue.message;
+      }
+    }
+    if (mode === "signup") {
+      const passwordConfirmError = getAuthFieldError("passwordConfirm", formData.passwordConfirm, mode, formData.password);
+      if (passwordConfirmError) newErrors.passwordConfirm = passwordConfirmError;
+    }
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
+      const firstInvalidField = mode === "signup"
+        ? ["name", "email", "password", "passwordConfirm"].find((field) => newErrors[field])
+        : ["email", "password"].find((field) => newErrors[field]);
+      if (firstInvalidField) document.getElementById(firstInvalidField)?.focus();
       return;
     }
 
+    if (requestInProgress.current) return;
+    requestInProgress.current = true;
     setLoading(true);
     try {
+      setErrors({});
       if (mode === "signin") {
-        const result = await signIn.email({ email: emailValidation.sanitizedValue, password: passwordValidation.sanitizedValue, callbackURL: callbackUrl });
+        const credentials = signInCredentialsSchema.parse(formData);
+        const result = await signIn.email({ ...credentials, callbackURL: callbackUrl });
         if (result?.error) {
           setError(getAuthError(result.error, mode).message);
           setFormData((previous) => ({ ...previous, password: "", passwordConfirm: "" }));
@@ -109,7 +108,8 @@ export function AuthForm({ mode }: AuthFormProps) {
         if (!result?.data) throw new Error("Sign in failed");
         goToApp();
       } else {
-        const result = await signUp.email({ email: emailValidation.sanitizedValue, password: passwordValidation.sanitizedValue, name: nameValidation.sanitizedValue, callbackURL: callbackUrl });
+        const credentials = signUpCredentialsSchema.parse(formData);
+        const result = await signUp.email({ ...credentials, callbackURL: callbackUrl });
         if (result?.error) {
           setError(getAuthError(result.error, mode).message);
           setFormData((previous) => ({ ...previous, password: "", passwordConfirm: "" }));
@@ -122,6 +122,7 @@ export function AuthForm({ mode }: AuthFormProps) {
       setError(getAuthError(submissionError, mode).message);
       setFormData((previous) => ({ ...previous, password: "", passwordConfirm: "" }));
     } finally {
+      requestInProgress.current = false;
       setLoading(false);
     }
   };
@@ -144,7 +145,7 @@ export function AuthForm({ mode }: AuthFormProps) {
           {mode === "signin" ? "Sign in to continue to Rungset." : "Start using Rungset."}
         </p>
 
-        <form onSubmit={handleSubmit} className="mt-7 space-y-5">
+        <form onSubmit={handleSubmit} noValidate aria-busy={loading} className="mt-7 space-y-5">
           {error ? (
             <div className="flex items-start gap-3 rounded-[var(--radius-control)] border border-[rgba(255,111,130,0.3)] bg-[var(--danger-soft)] px-3 py-3" role="alert">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--danger)]" aria-hidden="true" />
@@ -156,15 +157,12 @@ export function AuthForm({ mode }: AuthFormProps) {
           ) : null}
 
           {mode === "signup" ? (
-            <AuthField id="name" name="name" label="Full Name" type="text" value={formData.name} onChange={handleChange} error={errors.name} placeholder="Your name" autoComplete="name" />
+            <AuthField id="name" name="name" label="Full Name" type="text" value={formData.name} onChange={handleChange} error={errors.name} placeholder="Your name" autoComplete="name" disabled={loading} />
           ) : null}
-          <AuthField id="email" name="email" label="Email" type="email" value={formData.email} onChange={handleChange} error={errors.email} placeholder="you@example.com" autoComplete="email" />
-          <div>
-            <AuthField id="password" name="password" label="Password" type="password" value={formData.password} onChange={handleChange} error={errors.password} placeholder="Enter your password" autoComplete={mode === "signin" ? "current-password" : "new-password"} />
-            {mode === "signup" && !errors.password ? <p id="password-hint" className="app-form-hint mt-1">At least 8 characters with uppercase, lowercase, and a number.</p> : null}
-          </div>
+          <AuthField id="email" name="email" label="Email" type="email" value={formData.email} onChange={handleChange} error={errors.email} placeholder="you@example.com" autoComplete="email" disabled={loading} />
+          <AuthField id="password" name="password" label="Password" type="password" value={formData.password} onChange={handleChange} error={errors.password} placeholder="Enter your password" autoComplete={mode === "signin" ? "current-password" : "new-password"} disabled={loading} hint={mode === "signup" ? "At least 8 characters with uppercase, lowercase, and a number." : undefined} />
           {mode === "signup" ? (
-            <AuthField id="passwordConfirm" name="passwordConfirm" label="Confirm Password" type="password" value={formData.passwordConfirm} onChange={handleChange} error={errors.passwordConfirm} placeholder="Re-enter your password" autoComplete="new-password" />
+            <AuthField id="passwordConfirm" name="passwordConfirm" label="Confirm Password" type="password" value={formData.passwordConfirm} onChange={handleChange} error={errors.passwordConfirm} placeholder="Re-enter your password" autoComplete="new-password" disabled={loading} />
           ) : null}
 
           <button type="submit" disabled={loading || hasFieldErrors} className="app-button w-full disabled:cursor-not-allowed">
@@ -207,6 +205,8 @@ function AuthField({
   error,
   placeholder,
   autoComplete,
+  disabled,
+  hint,
 }: {
   id: string;
   name: string;
@@ -217,13 +217,17 @@ function AuthField({
   error?: string;
   placeholder: string;
   autoComplete: string;
+  disabled: boolean;
+  hint?: string;
 }) {
   const errorId = `${id}-error`;
+  const hintId = `${id}-hint`;
   return (
     <div>
       <label htmlFor={id} className="mb-2 block text-sm font-medium text-[var(--text-secondary)]">{label}</label>
-      <input id={id} name={name} type={type} value={value} onChange={onChange} required placeholder={placeholder} autoComplete={autoComplete} className={`app-field ${error ? "border-red-500" : ""}`} aria-invalid={!!error} aria-describedby={error ? errorId : undefined} />
+      <input id={id} name={name} type={type} value={value} onChange={onChange} disabled={disabled} required maxLength={id === "email" ? 254 : id === "password" || id === "passwordConfirm" ? 128 : 100} placeholder={placeholder} autoComplete={autoComplete} className={`app-field ${error ? "border-red-500" : ""}`} aria-invalid={!!error} aria-describedby={[error ? errorId : null, hint ? hintId : null].filter(Boolean).join(" ") || undefined} />
       {error ? <p id={errorId} className="app-form-error mt-1" role="alert">{error}</p> : null}
+      {hint ? <p id={hintId} className="app-form-hint mt-1">{hint}</p> : null}
     </div>
   );
 }
