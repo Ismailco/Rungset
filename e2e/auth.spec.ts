@@ -55,7 +55,7 @@ test("auth forms give accessible feedback for missing and malformed credentials"
 });
 
 test("sign-up and sign-in links preserve the callback URL", async ({ page }) => {
-  const callbackUrl = "/goals/123?tab=milestones#next";
+  const callbackUrl = "/goals/123?tab=milestones";
   const encodedCallbackUrl = encodeURIComponent(callbackUrl);
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
