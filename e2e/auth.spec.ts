@@ -54,6 +54,27 @@ test("auth forms give accessible feedback for missing and malformed credentials"
   expect(invalidBody.message).toBe("Please enter a valid email address");
 });
 
+test("sign-up and sign-in links preserve the callback URL", async ({ page }) => {
+  const callbackUrl = "/goals/123?tab=milestones#next";
+  const encodedCallbackUrl = encodeURIComponent(callbackUrl);
+  const suffix = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+
+  await page.goto(`/auth/signup?callbackUrl=${encodedCallbackUrl}`);
+  const response = await completeSignUp(page, "Callback Tester", `callback-${suffix}@example.com`);
+  expect(response.status()).toBe(200);
+  await expect(page.getByRole("status")).toHaveText(SIGN_UP_NOTICE);
+
+  const signInLink = page.getByRole("link", { name: "Sign in" });
+  await expect(signInLink).toHaveAttribute("href", `/auth/signin?callbackUrl=${encodedCallbackUrl}`);
+  await signInLink.click();
+  await expect(page).toHaveURL(new URL(`/auth/signin?callbackUrl=${encodedCallbackUrl}`, page.url()).toString());
+
+  await expect(page.getByRole("link", { name: "Sign up" })).toHaveAttribute(
+    "href",
+    `/auth/signup?callbackUrl=${encodedCallbackUrl}`,
+  );
+});
+
 test("duplicate registration stays generic and valid sign-in works", async ({ page }) => {
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   const email = `auth-${suffix}@example.com`;

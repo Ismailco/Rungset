@@ -228,7 +228,7 @@ export function AuthForm({ mode }: AuthFormProps) {
         </form>
 
         <p className="mt-6 text-center text-sm text-[var(--text-secondary)]">
-          {mode === "signin" ? <>Don&apos;t have an account? <Link href="/auth/signup" prefetch={false} className="font-semibold text-[var(--brand-primary)] hover:text-white hover:underline">Sign up</Link></> : <>Already have an account? <Link href="/auth/signin" prefetch={false} className="font-semibold text-[var(--brand-primary)] hover:text-white hover:underline">Sign in</Link></>}
+          {mode === "signin" ? <>Don&apos;t have an account? <Link href={`/auth/signup?callbackUrl=${encodeURIComponent(callbackUrl)}`} prefetch={false} className="font-semibold text-[var(--brand-primary)] hover:text-white hover:underline">Sign up</Link></> : <>Already have an account? <Link href={`/auth/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`} prefetch={false} className="font-semibold text-[var(--brand-primary)] hover:text-white hover:underline">Sign in</Link></>}
         </p>
       </section>
     </main>
