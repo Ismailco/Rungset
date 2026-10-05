@@ -124,8 +124,9 @@ test("rate limits and provider failures are shown safely while requests are pend
   await submit.click();
   await expect(submit).toBeDisabled();
   await expect(page.getByLabel("Email")).toBeDisabled();
-  await expect(page.getByRole("alert")).toContainText("Too many attempts. Wait a little and try again.");
-  await expect(page.getByRole("alert")).not.toContainText("internal rate-limit details");
+  const formAlert = page.locator('form > div[role="alert"]');
+  await expect(formAlert).toContainText("Too many attempts. Wait a little and try again.");
+  await expect(formAlert).not.toContainText("internal rate-limit details");
   expect(signInRequests).toBe(1);
 
   await page.route("**/api/auth/sign-in/social", (route) => route.fulfill({
@@ -134,6 +135,6 @@ test("rate limits and provider failures are shown safely while requests are pend
     body: JSON.stringify({ code: "PROVIDER_ERROR", message: "private provider configuration" }),
   }));
   await page.getByRole("button", { name: "Continue with Google" }).click();
-  await expect(page.getByRole("alert")).toContainText("That sign-in provider is temporarily unavailable.");
-  await expect(page.getByRole("alert")).not.toContainText("private provider configuration");
+  await expect(formAlert).toContainText("That sign-in provider is temporarily unavailable.");
+  await expect(formAlert).not.toContainText("private provider configuration");
 });
