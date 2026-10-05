@@ -1,6 +1,8 @@
 import { db } from "@/lib/db/db";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { signInCredentialsSchema, signUpCredentialsSchema } from "@/lib/auth/auth-validation";
 
 const AUTH_BASE_PATH = "/api/auth";
 
@@ -60,6 +62,29 @@ export const auth = betterAuth({
   ...(disableRateLimitForLocalTests ? { rateLimit: { enabled: false } } : {}),
   emailAndPassword: {
     enabled: true,
+    autoSignIn: false,
+    minPasswordLength: 8,
+    maxPasswordLength: 128,
+  },
+  hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      const schema = ctx.path === "/sign-in/email"
+        ? signInCredentialsSchema
+        : ctx.path === "/sign-up/email"
+          ? signUpCredentialsSchema
+          : null;
+      if (!schema) return;
+
+      const result = schema.safeParse(ctx.body);
+      if (!result.success) {
+        throw new APIError("BAD_REQUEST", {
+          code: "INVALID_AUTH_INPUT",
+          message: result.error.issues[0]?.message ?? "Invalid authentication details",
+        });
+      }
+
+      return { context: { body: result.data } };
+    }),
   },
   socialProviders: {
     google: {

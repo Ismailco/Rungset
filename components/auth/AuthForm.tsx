@@ -31,7 +31,9 @@ export function AuthForm({ mode }: AuthFormProps) {
   const [formData, setFormData] = useState({ name: "", email: "", password: "", passwordConfirm: "" });
   const [errors, setErrors] = useState<FormErrors>({});
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pendingProvider, setPendingProvider] = useState<"google" | "github" | null>(null);
   const requestInProgress = useRef(false);
   const hasStartedNavigation = useRef(false);
   const { data: session, isPending } = useSession();
@@ -50,6 +52,12 @@ export function AuthForm({ mode }: AuthFormProps) {
     if (!isPending && session) goToApp();
   }, [goToApp, isPending, session]);
 
+  useEffect(() => {
+    if (searchParams.get("authError") === "provider") {
+      setError(getAuthError({ code: "PROVIDER_ERROR" }, mode).message);
+    }
+  }, [mode, searchParams]);
+
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
     const field = name as AuthFieldName;
@@ -63,11 +71,13 @@ export function AuthForm({ mode }: AuthFormProps) {
       return next;
     });
     setError(null);
+    setNotice(null);
   };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
+    setNotice(null);
 
     const newErrors: FormErrors = {};
     const validation = mode === "signin"
@@ -116,7 +126,8 @@ export function AuthForm({ mode }: AuthFormProps) {
           return;
         }
         if (!result?.data) throw new Error("Sign up failed");
-        goToApp();
+        setFormData((previous) => ({ ...previous, password: "", passwordConfirm: "" }));
+        setNotice("If an account can be created with these details, you can now sign in.");
       }
     } catch (submissionError) {
       setError(getAuthError(submissionError, mode).message);
@@ -124,6 +135,34 @@ export function AuthForm({ mode }: AuthFormProps) {
     } finally {
       requestInProgress.current = false;
       setLoading(false);
+    }
+  };
+
+  const handleSocialSignIn = async (provider: "google" | "github") => {
+    if (requestInProgress.current) return;
+
+    requestInProgress.current = true;
+    setLoading(true);
+    setPendingProvider(provider);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const errorCallbackURL = new URL(mode === "signin" ? "/auth/signin" : "/auth/signup", window.location.origin);
+      errorCallbackURL.searchParams.set("authError", "provider");
+      errorCallbackURL.searchParams.set("callbackUrl", callbackUrl);
+      const result = await signIn.social({ provider, callbackURL: callbackUrl, errorCallbackURL: errorCallbackURL.toString() });
+      if (result?.error) {
+        setError(getAuthError(result.error, mode).message);
+      } else if (!result?.data) {
+        throw new Error("OAuth provider unavailable");
+      }
+    } catch (submissionError) {
+      setError(getAuthError(submissionError, mode).message);
+    } finally {
+      requestInProgress.current = false;
+      setLoading(false);
+      setPendingProvider(null);
     }
   };
 
@@ -155,6 +194,7 @@ export function AuthForm({ mode }: AuthFormProps) {
               </button>
             </div>
           ) : null}
+          {notice ? <p className="app-form-hint rounded-[var(--radius-control)] border border-[var(--border-subtle)] px-3 py-3" role="status">{notice}</p> : null}
 
           {mode === "signup" ? (
             <AuthField id="name" name="name" label="Full Name" type="text" value={formData.name} onChange={handleChange} error={errors.name} placeholder="Your name" autoComplete="name" disabled={loading} />
@@ -176,13 +216,13 @@ export function AuthForm({ mode }: AuthFormProps) {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <button type="button" onClick={() => signIn.social({ provider: "google", callbackURL: callbackUrl })} className="auth-social-button w-full">
+            <button type="button" onClick={() => void handleSocialSignIn("google")} disabled={loading} aria-busy={pendingProvider === "google"} className="auth-social-button w-full disabled:cursor-not-allowed">
               <Globe2 className="h-4 w-4" aria-hidden="true" />
-              <span>Continue with Google</span>
+              <span>{pendingProvider === "google" ? "Connecting to Google..." : "Continue with Google"}</span>
             </button>
-            <button type="button" onClick={() => signIn.social({ provider: "github", callbackURL: callbackUrl })} className="auth-social-button w-full">
+            <button type="button" onClick={() => void handleSocialSignIn("github")} disabled={loading} aria-busy={pendingProvider === "github"} className="auth-social-button w-full disabled:cursor-not-allowed">
               <Code2 className="h-4 w-4" aria-hidden="true" />
-              <span>Continue with GitHub</span>
+              <span>{pendingProvider === "github" ? "Connecting to GitHub..." : "Continue with GitHub"}</span>
             </button>
           </div>
         </form>

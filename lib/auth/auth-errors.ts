@@ -3,9 +3,11 @@ export type AuthMode = "signin" | "signup";
 type AuthErrorType =
   | "AUTHENTICATION_FAILED"
   | "ACCOUNT_CREATION_FAILED"
-  | "EMAIL_NOT_VERIFIED"
   | "INVALID_EMAIL"
+  | "RATE_LIMITED"
+  | "PROVIDER_UNAVAILABLE"
   | "NETWORK_ERROR"
+  | "SERVICE_UNAVAILABLE"
   | "TIMEOUT"
   | "UNKNOWN";
 
@@ -31,8 +33,8 @@ const AUTH_ERROR_MAPPINGS: AuthErrorMapping[] = [
   },
   {
     pattern: "email not verified",
-    type: "EMAIL_NOT_VERIFIED",
-    message: "Please verify your email before signing in.",
+    type: "AUTHENTICATION_FAILED",
+    message: "Invalid email or password. Please try again.",
   },
   {
     pattern: "invalid email",
@@ -40,7 +42,7 @@ const AUTH_ERROR_MAPPINGS: AuthErrorMapping[] = [
     message: "Please enter a valid email address.",
   },
   {
-    pattern: /(network|connection)/i,
+    pattern: /(network|connection|failed to fetch|fetch failed)/i,
     type: "NETWORK_ERROR",
     message:
       "Unable to connect to the server. Please check your internet connection.",
@@ -58,21 +60,43 @@ export interface AuthError {
 }
 
 const DEFAULT_AUTH_ERROR_MESSAGES: Record<AuthMode, string> = {
-  signin: "Authentication failed. Please try again.",
+  signin: "Unable to sign in right now. Please try again.",
   signup:
     "Unable to create your account. Please review your details and try again.",
 };
 
+function getErrorDetails(error: unknown) {
+  if (typeof error === "string") return { message: error.toLowerCase(), status: undefined, code: "" };
+  if (!error || typeof error !== "object") return { message: "", status: undefined, code: "" };
+
+  const details = error as { message?: unknown; status?: unknown; statusCode?: unknown; code?: unknown };
+  const status = typeof details.status === "number"
+    ? details.status
+    : typeof details.statusCode === "number" ? details.statusCode : undefined;
+  return {
+    message: typeof details.message === "string" ? details.message.toLowerCase() : "",
+    status,
+    code: typeof details.code === "string" ? details.code.toLowerCase() : "",
+  };
+}
+
 export const getAuthError = (error: unknown, mode: AuthMode): AuthError => {
-  // Handle string errors
-  const errorMessage =
-    error instanceof Error
-      ? error.message.toLowerCase()
-      : typeof error === "string"
-        ? error.toLowerCase()
-        : typeof error === "object" && error && "message" in error
-          ? (error as { message: string }).message.toLowerCase()
-          : "";
+  const { message: errorMessage, status, code } = getErrorDetails(error);
+
+  if (status === 429 || /rate.?limit|too many requests/.test(`${code} ${errorMessage}`)) {
+    return { type: "RATE_LIMITED", message: "Too many attempts. Wait a little and try again." };
+  }
+
+  if (/provider|oauth/.test(`${code} ${errorMessage}`)) {
+    return {
+      type: "PROVIDER_UNAVAILABLE",
+      message: "That sign-in provider is temporarily unavailable. Try again or use email and password.",
+    };
+  }
+
+  if (status !== undefined && status >= 500) {
+    return { type: "SERVICE_UNAVAILABLE", message: "Authentication is temporarily unavailable. Please try again." };
+  }
 
   // Find matching error mapping
   const mapping = AUTH_ERROR_MAPPINGS.find((m) =>
