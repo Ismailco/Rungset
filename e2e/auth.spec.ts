@@ -1,0 +1,139 @@
+import { expect, test, type Page } from '@playwright/test';
+
+const TEST_PASSWORD = "Rungset-e2e-2026";
+const SIGN_UP_NOTICE = "If an account can be created with these details, you can now sign in.";
+
+async function completeSignUp(page: Page, name: string, email: string) {
+  await page.getByLabel("Full Name").fill(name);
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password", { exact: true }).fill(TEST_PASSWORD);
+  await page.getByLabel("Confirm Password").fill(TEST_PASSWORD);
+  const responsePromise = page.waitForResponse((response) => (
+    response.url().includes("/api/auth/sign-up/email") && response.request().method() === "POST"
+  ));
+  await page.getByRole("button", { name: "Sign up", exact: true }).click();
+  return responsePromise;
+}
+
+test("auth forms give accessible feedback for missing and malformed credentials", async ({ page }) => {
+  let signInRequests = 0;
+  page.on("request", (request) => {
+    if (request.url().includes("/api/auth/sign-in/email")) signInRequests += 1;
+  });
+
+  await page.goto("/auth/signin");
+  await page.getByRole("button", { name: "Sign in", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByLabel("Email")).toBeFocused();
+  await expect(page.getByLabel("Email")).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByLabel("Email")).toHaveAttribute("aria-describedby", "email-error");
+  await expect(page.getByRole("alert").filter({ hasText: "Email is required" })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "Password is required" })).toBeVisible();
+  expect(signInRequests).toBe(0);
+
+  await page.goto("/auth/signup");
+  await page.getByRole("button", { name: "Sign up", exact: true }).click();
+  await expect(page.getByLabel("Full Name")).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByLabel("Full Name")).toBeFocused();
+  await expect(page.getByRole("alert").filter({ hasText: "Full name is required" })).toBeVisible();
+
+  await page.getByLabel("Full Name").fill("Validation Tester");
+  await page.getByLabel("Email").fill("not-an-email");
+  await page.getByLabel("Password", { exact: true }).fill(TEST_PASSWORD);
+  await page.getByLabel("Confirm Password").fill(TEST_PASSWORD);
+  await expect(page.getByLabel("Email")).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByLabel("Email")).toHaveAttribute("aria-describedby", "email-error");
+  await expect(page.getByRole("alert").filter({ hasText: "Please enter a valid email address" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign up", exact: true })).toBeDisabled();
+
+  const invalidResponse = await page.request.post(new URL("/api/auth/sign-up/email", page.url()).toString(), {
+    data: { name: "Validation Tester", email: "not-an-email", password: TEST_PASSWORD },
+  });
+  expect(invalidResponse.status()).toBe(400);
+  const invalidBody = await invalidResponse.json() as { message?: string };
+  expect(invalidBody.message).toBe("Please enter a valid email address");
+});
+
+test("duplicate registration stays generic and valid sign-in works", async ({ page }) => {
+  const suffix = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const email = `auth-${suffix}@example.com`;
+
+  await page.goto("/auth/signup");
+  const firstResponse = await completeSignUp(page, "Original Account Name", email.toUpperCase());
+  expect(firstResponse.status()).toBe(200);
+  expect(firstResponse.request().postDataJSON()).toMatchObject({ email });
+  expect(firstResponse.request().postDataJSON()).not.toHaveProperty("passwordConfirm");
+  const firstBody = await firstResponse.json() as { token: string | null; user: Record<string, unknown> };
+  expect(firstBody.token).toBeNull();
+  expect(firstBody.user.name).toBe("Original Account Name");
+  expect(firstBody.user.email).toBe(email);
+  await expect(page.getByRole("status")).toHaveText(SIGN_UP_NOTICE);
+
+  await page.goto("/auth/signup");
+  const duplicateResponse = await completeSignUp(page, "Unrelated Submitted Name", email.toUpperCase());
+  expect(duplicateResponse.status()).toBe(firstResponse.status());
+  const duplicateBody = await duplicateResponse.json() as { token: string | null; user: Record<string, unknown> };
+  expect(duplicateBody.token).toBeNull();
+  expect(duplicateResponse.request().postDataJSON()).not.toHaveProperty("passwordConfirm");
+  expect(Object.keys(duplicateBody).sort()).toEqual(Object.keys(firstBody).sort());
+  expect(Object.keys(duplicateBody.user).sort()).toEqual(Object.keys(firstBody.user).sort());
+  expect(duplicateBody.user.name).toBe("Unrelated Submitted Name");
+  await expect(page.getByRole("status")).toHaveText(SIGN_UP_NOTICE);
+
+  const signIn = async (emailAddress: string, password: string) => {
+    await page.goto("/auth/signin");
+    await page.getByLabel("Email").fill(emailAddress);
+    await page.getByLabel("Password", { exact: true }).fill(password);
+    const responsePromise = page.waitForResponse((response) => (
+      response.url().includes("/api/auth/sign-in/email") && response.request().method() === "POST"
+    ));
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    return responsePromise;
+  };
+
+  const unknownAccount = await signIn(`unknown-${suffix}@example.com`, "Wrong-password-2026");
+  expect(unknownAccount.status()).toBe(401);
+  const alertMessage = page.getByRole("alert").locator("p");
+  await expect(alertMessage).toHaveText("Invalid email or password. Please try again.");
+  const unknownMessage = await alertMessage.textContent();
+
+  const wrongPassword = await signIn(email, "Wrong-password-2026");
+  expect(wrongPassword.status()).toBe(401);
+  await expect(page.getByRole("alert").locator("p")).toHaveText(unknownMessage ?? "");
+
+  await signIn(email, TEST_PASSWORD);
+  await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 });
+});
+
+test("rate limits and provider failures are shown safely while requests are pending", async ({ page }) => {
+  let signInRequests = 0;
+  await page.route("**/api/auth/sign-in/email", async (route) => {
+    signInRequests += 1;
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    await route.fulfill({
+      status: 429,
+      contentType: "application/json",
+      body: JSON.stringify({ code: "TOO_MANY_REQUESTS", message: "internal rate-limit details" }),
+    });
+  });
+
+  await page.goto("/auth/signin");
+  await page.getByLabel("Email").fill("tester@example.com");
+  await page.getByLabel("Password", { exact: true }).fill(TEST_PASSWORD);
+  const submit = page.locator('form button[type="submit"]');
+  await submit.click();
+  await expect(submit).toBeDisabled();
+  await expect(page.getByLabel("Email")).toBeDisabled();
+  await expect(page.getByRole("alert")).toContainText("Too many attempts. Wait a little and try again.");
+  await expect(page.getByRole("alert")).not.toContainText("internal rate-limit details");
+  expect(signInRequests).toBe(1);
+
+  await page.route("**/api/auth/sign-in/social", (route) => route.fulfill({
+    status: 503,
+    contentType: "application/json",
+    body: JSON.stringify({ code: "PROVIDER_ERROR", message: "private provider configuration" }),
+  }));
+  await page.getByRole("button", { name: "Continue with Google" }).click();
+  await expect(page.getByRole("alert")).toContainText("That sign-in provider is temporarily unavailable.");
+  await expect(page.getByRole("alert")).not.toContainText("private provider configuration");
+});

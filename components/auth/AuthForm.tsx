@@ -109,7 +109,7 @@ export function AuthForm({ mode }: AuthFormProps) {
       setErrors({});
       if (mode === "signin") {
         const credentials = signInCredentialsSchema.parse(formData);
-        const result = await signIn.email({ ...credentials, callbackURL: callbackUrl });
+        const result = await signIn.email({ email: credentials.email, password: credentials.password, callbackURL: callbackUrl });
         if (result?.error) {
           setError(getAuthError(result.error, mode).message);
           setFormData((previous) => ({ ...previous, password: "", passwordConfirm: "" }));
@@ -119,7 +119,7 @@ export function AuthForm({ mode }: AuthFormProps) {
         goToApp();
       } else {
         const credentials = signUpCredentialsSchema.parse(formData);
-        const result = await signUp.email({ ...credentials, callbackURL: callbackUrl });
+        const result = await signUp.email({ name: credentials.name, email: credentials.email, password: credentials.password, callbackURL: callbackUrl });
         if (result?.error) {
           setError(getAuthError(result.error, mode).message);
           setFormData((previous) => ({ ...previous, password: "", passwordConfirm: "" }));

@@ -1,16 +1,11 @@
 import { expect, test } from '@playwright/test';
+import { signUpAndSignIn } from './helpers/auth';
 
 test('global Check-ins supports review activity, history, and management', async ({ page }) => {
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   const goalTitle = `Check-ins QA goal ${suffix}`;
 
-  await page.goto('/auth/signup');
-  await page.getByLabel('Full Name').fill('Check-ins Workspace Tester');
-  await page.getByLabel('Email').fill(`checkins-${suffix}@example.com`);
-  await page.getByLabel('Password', { exact: true }).fill('Rungset-e2e-2026');
-  await page.getByLabel('Confirm Password').fill('Rungset-e2e-2026');
-  await page.getByRole('button', { name: 'Sign up', exact: true }).click();
-  await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 });
+  await signUpAndSignIn(page, 'Check-ins Workspace Tester', `checkins-${suffix}@example.com`);
 
   await page.goto('/checkins');
   await expect(page.getByRole('heading', { name: 'Check-ins', exact: true })).toBeVisible();

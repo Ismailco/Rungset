@@ -1,34 +1,9 @@
-import { expect, test, type Page } from '@playwright/test';
-
-async function signUp(page: Page, name: string, email: string) {
-  await page.goto('/auth/signup');
-  await page.getByLabel('Full Name').fill(name);
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password', { exact: true }).fill('Rungset-e2e-2026');
-  await page.getByLabel('Confirm Password').fill('Rungset-e2e-2026');
-  const signUpResponse = page.waitForResponse((response) => (
-    response.url().includes('/api/auth/sign-up/email') && response.request().method() === 'POST'
-  ));
-  await page.getByRole('button', { name: 'Sign up', exact: true }).click();
-  const response = await signUpResponse;
-  if (!response.ok()) {
-    throw new Error(`Sign-up failed with HTTP ${response.status()}: ${await response.text()}`);
-  }
-
-  try {
-    await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 });
-  } catch (error) {
-    const alert = page.getByRole('alert');
-    const alertText = (await alert.count()) > 0 ? await alert.textContent() : null;
-    throw new Error(
-      `Sign-up returned HTTP ${response.status()}${alertText ? ` with UI error: ${alertText}` : ''}. ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
+import { expect, test } from '@playwright/test';
+import { signUpAndSignIn } from './helpers/auth';
 
 test('local workspace data is cleared across account transitions', async ({ page }) => {
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-  await signUp(page, 'Cache Owner A', `cache-a-${suffix}@example.com`);
+  await signUpAndSignIn(page, 'Cache Owner A', `cache-a-${suffix}@example.com`);
 
   await page.getByRole('button', { name: 'Create new goal' }).first().click();
   await page.getByLabel('Title', { exact: true }).fill('Private goal for account A');
@@ -54,7 +29,7 @@ test('local workspace data is cleared across account transitions', async ({ page
   await page.goto('/dashboard');
   await expect(page).toHaveURL(/\/auth\/signin/);
 
-  await signUp(page, 'Cache Owner B', `cache-b-${suffix}@example.com`);
+  await signUpAndSignIn(page, 'Cache Owner B', `cache-b-${suffix}@example.com`);
   expect(await page.evaluate(() => localStorage.getItem('userId'))).not.toBe(accountAStorage.userId);
   await expect(page.getByText('Private goal for account A')).not.toBeVisible();
   await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
