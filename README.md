@@ -51,6 +51,18 @@ Rungset is a Next.js App Router application, deployed to Cloudflare Workers thro
 
 Client storage maintains the offline-first experience and synchronizes changes through authenticated `/api/*` routes. Database definitions and forward-only migrations live in [`lib/db/schema.ts`](lib/db/schema.ts) and [`drizzle/`](drizzle/).
 
+## Supported versions
+
+The validated toolchain for this repository is:
+
+- Node.js 24.11.0 (`.nvmrc`)
+- pnpm 11 (CI)
+- Next.js 16.3.7
+- OpenNext 1.20.7
+- Wrangler 4.145.0
+
+Keep this list aligned with the lockfile and CI configuration when updating the toolchain.
+
 ## Quick start
 
 **Prerequisites:** Node.js 24 (see [`.nvmrc`](.nvmrc)) and pnpm 11.
