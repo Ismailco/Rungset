@@ -57,6 +57,7 @@ try {
   run(['d1', 'migrations', 'apply', 'goalgenius_db', '--local', '--persist-to', persistDir, '--config', configPath]);
   run(['d1', 'execute', 'goalgenius_db', '--local', '--persist-to', persistDir, '--config', configPath, '--command', [
     "INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('legacy-user', 'Legacy User', 'legacy@example.com', 1, 1, 1)",
+    "INSERT INTO session (id, expires_at, token, created_at, updated_at, user_id) VALUES ('legacy-session', 9999999999, 'legacy-session-token', 100, 100, 'legacy-user')",
     "INSERT INTO goals (id, user_id, title, description, category, time_frame, status, progress, created_at, updated_at) VALUES ('legacy-goal', 'legacy-user', 'Legacy goal', 'Before execution links', 'career', 'short-term', 'in-progress', 0, 1, 1)",
     "INSERT INTO milestones (id, goal_id, user_id, title, description, date, created_at, updated_at) VALUES ('legacy-milestone', 'legacy-goal', 'legacy-user', 'Legacy milestone', NULL, '2026-01-15', 1, 1)",
     "INSERT INTO todos (id, user_id, title, priority, completed, created_at, updated_at) VALUES ('legacy-task', 'legacy-user', 'Legacy task', 'medium', 0, 1, 1)",
@@ -74,8 +75,26 @@ try {
     (SELECT count(*) FROM milestones WHERE id = 'legacy-milestone' AND completed = 0) AS milestones,
     (SELECT count(*) FROM todos WHERE id = 'legacy-task' AND goal_id IS NULL AND recurrence = 'none' AND reminder = 'none') AS tasks,
     (SELECT count(*) FROM notes WHERE id = 'legacy-note') AS notes,
-    (SELECT count(*) FROM check_ins WHERE id = 'legacy-checkin' AND goal_id IS NULL) AS checkins`);
-  assert.deepEqual(rows[0], { goals: 1, milestones: 1, tasks: 1, notes: 1, checkins: 1 });
+    (SELECT count(*) FROM check_ins WHERE id = 'legacy-checkin' AND goal_id IS NULL) AS checkins,
+    (SELECT last_login_at FROM user WHERE id = 'legacy-user') AS last_login_at,
+    (SELECT marketing_email_opt_in FROM user WHERE id = 'legacy-user') AS marketing_opt_in,
+    (SELECT marketing_email_pending FROM user WHERE id = 'legacy-user') AS marketing_pending,
+    (SELECT marketing_email_consent_at FROM user WHERE id = 'legacy-user') AS marketing_consent_at,
+    (SELECT marketing_email_unsubscribed_at FROM user WHERE id = 'legacy-user') AS marketing_unsubscribed_at,
+    (SELECT marketing_email_token_version FROM user WHERE id = 'legacy-user') AS marketing_token_version`);
+  assert.deepEqual(rows[0], {
+    goals: 1,
+    milestones: 1,
+    tasks: 1,
+    notes: 1,
+    checkins: 1,
+    last_login_at: 100,
+    marketing_opt_in: 0,
+    marketing_pending: 0,
+    marketing_consent_at: null,
+    marketing_unsubscribed_at: null,
+    marketing_token_version: 0,
+  });
   console.log('Fresh and pre-0007 upgrade migrations passed.');
 } finally {
   await rm(tempRoot, { recursive: true, force: true });

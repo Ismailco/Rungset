@@ -29,6 +29,7 @@ export const signUpCredentialsSchema = z
       .refine((password) => /[a-z]/.test(password) && /[A-Z]/.test(password) && /\d/.test(password), {
         message: "Password must contain at least one uppercase letter, one lowercase letter, and one number",
       }),
+    marketingEmailOptIn: z.boolean().default(false),
   })
   .passthrough();
 

@@ -28,7 +28,7 @@ interface FormErrors {
 }
 
 export function AuthForm({ mode }: AuthFormProps) {
-  const [formData, setFormData] = useState({ name: "", email: "", password: "", passwordConfirm: "" });
+  const [formData, setFormData] = useState({ name: "", email: "", password: "", passwordConfirm: "", marketingEmailOptIn: false });
   const [errors, setErrors] = useState<FormErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -119,7 +119,7 @@ export function AuthForm({ mode }: AuthFormProps) {
         goToApp();
       } else {
         const credentials = signUpCredentialsSchema.parse(formData);
-        const result = await signUp.email({ name: credentials.name, email: credentials.email, password: credentials.password, callbackURL: callbackUrl });
+        const result = await signUp.email({ name: credentials.name, email: credentials.email, password: credentials.password, marketingEmailOptIn: credentials.marketingEmailOptIn, callbackURL: callbackUrl });
         if (result?.error) {
           setError(getAuthError(result.error, mode).message);
           setFormData((previous) => ({ ...previous, password: "", passwordConfirm: "" }));
@@ -205,10 +205,30 @@ export function AuthForm({ mode }: AuthFormProps) {
             <AuthField id="passwordConfirm" name="passwordConfirm" label="Confirm Password" type="password" value={formData.passwordConfirm} onChange={handleChange} error={errors.passwordConfirm} placeholder="Re-enter your password" autoComplete="new-password" disabled={loading} />
           ) : null}
 
+          {mode === "signup" ? (
+            <div className="space-y-2">
+              <label className="flex items-start gap-3 text-sm leading-5 text-[var(--text-secondary)]">
+                <input
+                  type="checkbox"
+                  checked={formData.marketingEmailOptIn}
+                  onChange={(event) => setFormData((previous) => ({ ...previous, marketingEmailOptIn: event.target.checked }))}
+                  disabled={loading}
+                  className="mt-1 h-4 w-4 shrink-0 accent-[var(--brand-primary)]"
+                />
+                <span>Send me optional product news and updates. I can unsubscribe at any time.</span>
+              </label>
+              <p className="pl-7 text-xs leading-5 text-[var(--text-muted)]">
+                This choice applies to email sign-up. If you use Google or GitHub, you can opt in later from Account Settings.
+              </p>
+            </div>
+          ) : null}
+
           <button type="submit" disabled={loading || hasFieldErrors} className="app-button w-full disabled:cursor-not-allowed">
             {loading ? (mode === "signin" ? "Signing in..." : "Creating account...") : mode === "signin" ? "Sign in" : "Sign up"}
           </button>
+        </form>
 
+        <div className="mt-5 space-y-5">
           <div className="flex items-center gap-3 py-1" aria-hidden="true">
             <div className="h-px flex-1 bg-[var(--border-subtle)]" />
             <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">or</span>
@@ -225,7 +245,7 @@ export function AuthForm({ mode }: AuthFormProps) {
               <span>{pendingProvider === "github" ? "Connecting to GitHub..." : "Continue with GitHub"}</span>
             </button>
           </div>
-        </form>
+        </div>
 
         <p className="mt-6 text-center text-sm text-[var(--text-secondary)]">
           {mode === "signin" ? <>Don&apos;t have an account? <Link href={`/auth/signup?callbackUrl=${encodeURIComponent(callbackUrl)}`} prefetch={false} className="font-semibold text-[var(--brand-primary)] hover:text-white hover:underline">Sign up</Link></> : <>Already have an account? <Link href={`/auth/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`} prefetch={false} className="font-semibold text-[var(--brand-primary)] hover:text-white hover:underline">Sign in</Link></>}

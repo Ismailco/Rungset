@@ -77,6 +77,29 @@ try {
     await client.expect('/api/auth/sign-in/email', 200, { method: 'POST', body: { email, password } });
   }
 
+  const defaultPreferences = await userA.expect('/api/account/email-preferences', 200);
+  assert.deepEqual(defaultPreferences, { marketingEmailOptIn: false, pending: false, unsubscribed: false });
+  const genericConsentUpdate = await userA.request('/api/auth/update-user', {
+    method: 'POST',
+    body: { marketingEmailOptIn: true },
+  });
+  assert.equal(genericConsentUpdate.response.status, 400, JSON.stringify(genericConsentUpdate.body));
+  assert.deepEqual(await userA.expect('/api/account/email-preferences', 200), defaultPreferences);
+
+  const concurrentOptOuts = await Promise.all([
+    userA.request('/api/account/email-preferences', { method: 'PATCH', body: { marketingEmailOptIn: false } }),
+    userA.request('/api/account/email-preferences', { method: 'PATCH', body: { marketingEmailOptIn: false } }),
+  ]);
+  for (const result of concurrentOptOuts) {
+    assert.equal(result.response.status, 200, JSON.stringify(result.body));
+    assert.deepEqual(result.body, { marketingEmailOptIn: false, pending: false, unsubscribed: true });
+  }
+  assert.deepEqual(await userA.expect('/api/account/email-preferences', 200), {
+    marketingEmailOptIn: false,
+    pending: false,
+    unsubscribed: true,
+  });
+
   const goalA = await userA.expect('/api/goals', 201, { method: 'POST', body: { title: 'A goal', description: 'Private A', category: 'career', timeFrame: 'short-term', status: 'in-progress' } });
   const goalA2 = await userA.expect('/api/goals', 201, { method: 'POST', body: { title: 'A second goal', category: 'health', timeFrame: 'medium-term', status: 'in-progress' } });
   const goalB = await userB.expect('/api/goals', 201, { method: 'POST', body: { title: 'B goal', category: 'learning', timeFrame: 'long-term', status: 'in-progress' } });
@@ -142,7 +165,7 @@ try {
   const deletedOccurrences = await userA.expect(`/api/todo-occurrences?todoId=${taskA.id}`, 200);
   assert.equal(deletedOccurrences.length, 0);
   await userA.expect(`/api/checkins/${checkInA.id}`, 404);
-  console.log('Authorization, relationship, recurring completion, and history integration tests passed.');
+  console.log('Authorization, preference concurrency, relationship, recurring completion, and history integration tests passed.');
 } finally {
   if (worker) worker.kill('SIGTERM');
   await rm(persistDir, { recursive: true, force: true });

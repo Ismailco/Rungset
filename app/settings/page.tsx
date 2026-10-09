@@ -2,6 +2,7 @@
 
 import AlertModal from '@/components/common/AlertModal';
 import { AccountSettingsSection } from '@/components/app/settings/AccountSettingsSection';
+import { EmailPreferencesSection } from '@/components/app/settings/EmailPreferencesSection';
 import { NotificationsOfflineSection } from '@/components/app/settings/NotificationsOfflineSection';
 import { WorkspaceBehaviorSection } from '@/components/app/settings/WorkspaceBehaviorSection';
 import { WorkspaceDataSection } from '@/components/app/settings/WorkspaceDataSection';
@@ -45,6 +46,7 @@ export default function SettingsPage() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <EmailPreferencesSection />
         <NotificationsOfflineSection
           notificationPermission={settings.notificationPermission}
           notificationStatusLabel={settings.notificationStatusLabel}

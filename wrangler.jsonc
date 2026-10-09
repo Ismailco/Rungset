@@ -38,7 +38,18 @@
   },
   "observability": {
     "enabled": true,
+    "redact_query_string": true,
+    "logs": {
+      "invocation_logs": true,
+      "head_sampling_rate": 1,
+    },
   },
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_sender_addresses": ["hello@rungset.com"],
+    },
+  ],
   "vars": {
     "NEXT_PUBLIC_APP_URL": "https://app.rungset.com",
     "NEXT_PUBLIC_BETTER_AUTH_URL": "https://app.rungset.com",

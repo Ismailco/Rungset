@@ -49,7 +49,12 @@ export const MOBILE_PRIMARY_NAV_ITEMS = APP_NAV_ITEMS.filter(
 );
 
 export function isPublicPath(pathname: string) {
-  return pathname === '/' || pathname.startsWith('/auth/');
+  return (
+    pathname === '/' ||
+    pathname.startsWith('/auth/') ||
+    pathname === '/email-preferences' ||
+    pathname.startsWith('/email-preferences/')
+  );
 }
 
 export function isNavigationItemActive(
