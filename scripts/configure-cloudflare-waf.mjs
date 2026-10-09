@@ -6,9 +6,11 @@ const HOSTS = ["app.rungset.com"];
 
 const PAGE_PATHS = [
   "/",
+  "/admin",
   "/analytics",
   "/auth/signin",
   "/auth/signup",
+  "/auth/verify-email",
   "/calendar",
   "/checkins",
   "/dashboard",
@@ -29,6 +31,10 @@ const PUBLIC_ASSET_PATHS = [
 ];
 
 const DATA_API_PATHS = [
+  "/api/admin/email",
+  "/api/admin/logs",
+  "/api/admin/overview",
+  "/api/admin/users",
   "/api/checkins",
   "/api/goals",
   "/api/milestones",

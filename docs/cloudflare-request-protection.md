@@ -6,8 +6,12 @@ The policy is maintained by `scripts/configure-cloudflare-waf.mjs`.
 
 ## What the policy protects
 
-- Only the known application pages, static assets, and API routes are allowed on
-  `app.rungset.com`.
+- Only known application pages (including the protected `/admin` route and the
+  `/auth/verify-email` landing page), static assets, and API routes are allowed
+  on `app.rungset.com`.
+- Admin API access is limited to the dashboard's exact endpoints and, like the
+  other data APIs, requires a Better Auth session cookie at the WAF. The app
+  still verifies the user's admin access in each handler.
 - Methods outside `GET`, `HEAD`, `POST`, `PUT`, `DELETE`, and `OPTIONS` are
   blocked.
 - Data API requests without a Better Auth session cookie are blocked at the
@@ -69,7 +73,13 @@ curl -I -A 'Mozilla/5.0' https://app.rungset.com/api/goals
 Expected results:
 
 - `/auth/signin` remains available.
+- `/auth/verify-email` remains available after the email-verification endpoint
+  validates a link.
 - `/dashboard` redirects unauthenticated visitors to sign in.
+- `/admin` reaches the app's server-side admin gate; only authenticated users
+  with a verified allowlisted email can access the dashboard.
+- Admin dashboard requests to `/api/admin/overview`, `/api/admin/users`,
+  `/api/admin/logs`, and `/api/admin/email` reach their server-side admin gates.
 - `/manifest.json` is served by Workers Static Assets without invoking the
   application Worker.
 - `/wp-plain.php` is blocked with `403` at the WAF.
