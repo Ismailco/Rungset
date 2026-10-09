@@ -11,10 +11,11 @@ import { user as userTable } from "@/lib/db/schema";
 
 const AUTH_BASE_PATH = "/api/auth";
 
-function getSignInVerificationUrl(url: string, request?: Request) {
-  if (!request || new URL(request.url).pathname !== `${AUTH_BASE_PATH}/sign-in/email`) {
-    return url;
-  }
+function getVerificationUrl(url: string, request?: Request) {
+  const requestPath = request ? new URL(request.url).pathname : "";
+  const isEmailSignIn = requestPath === `${AUTH_BASE_PATH}/sign-in/email`;
+  const isOAuthCallback = requestPath.startsWith(`${AUTH_BASE_PATH}/callback/`);
+  if (!isEmailSignIn && !isOAuthCallback) return url;
 
   const verificationUrl = new URL(url);
   const callbackUrl = verificationUrl.searchParams.get("callbackURL");
@@ -122,7 +123,7 @@ export const auth = betterAuth({
     sendVerificationEmail: async ({ user, url }, request) => {
       try {
         const { env, ctx } = getCloudflareContext();
-        const verificationUrl = getSignInVerificationUrl(url, request);
+        const verificationUrl = getVerificationUrl(url, request);
         const safeName = escapeEmailHtml(user.name);
         const safeUrl = escapeEmailHtml(verificationUrl);
         const send = env.EMAIL.send({
