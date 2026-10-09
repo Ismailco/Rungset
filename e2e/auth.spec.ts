@@ -155,7 +155,7 @@ test("invalid verification links offer a resend and preserve the requested desti
   await page.goto(`/auth/verify-email?callbackUrl=${encodeURIComponent(callbackUrl)}&error=invalid_token`);
   await expect(page.locator('p[role="alert"]')).toHaveText("That verification link is invalid or has expired. Request a fresh link below.");
 
-  await page.getByLabel("Email").fill("expired-link@example.com");
+  await page.getByRole("textbox", { name: "Email" }).fill("expired-link@example.com");
   const resendResponsePromise = page.waitForResponse((response) => (
     response.url().includes("/api/auth/send-verification-email") && response.request().method() === "POST"
   ));
