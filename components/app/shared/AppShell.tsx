@@ -5,7 +5,12 @@ import { useEffect, useState } from 'react';
 import Navbar from '@/components/app/shared/Navbar';
 import Sidebar from '@/components/app/shared/Sidebar';
 import { isPublicPath } from '@/components/app/shared/navigation';
+import { getEmailVerificationCallbackUrl, getSafeCallbackUrl } from '@/lib/auth/callback-url';
 import { useSession } from '@/lib/auth/auth-client';
+
+function getCurrentCallbackUrl(pathname: string) {
+  return getSafeCallbackUrl(`${pathname}${window.location.search}${window.location.hash}`);
+}
 
 export default function AppShell({
   children,
@@ -25,21 +30,29 @@ export default function AppShell({
     if (sessionStorage.getItem('goalgenius-logged-out') === 'true') {
       setLogoutRequested(true);
       window.location.replace(
-        `/auth/signin?callbackUrl=${encodeURIComponent(pathname)}`,
+        `/auth/signin?callbackUrl=${encodeURIComponent(getCurrentCallbackUrl(pathname))}`,
       );
       return;
     }
   }, [isPublicRoute, pathname]);
 
   useEffect(() => {
-    if (isPublicRoute || isPending || session || logoutRequested) return;
+    if (isPublicRoute || isPending || logoutRequested) return;
+
+    if (session && !session.user.emailVerified) {
+      window.location.replace(
+        getEmailVerificationCallbackUrl(getCurrentCallbackUrl(pathname)),
+      );
+      return;
+    }
+    if (session) return;
 
     window.location.replace(
-      `/auth/signin?callbackUrl=${encodeURIComponent(pathname)}`,
+      `/auth/signin?callbackUrl=${encodeURIComponent(getCurrentCallbackUrl(pathname))}`,
     );
   }, [isPending, isPublicRoute, logoutRequested, pathname, session]);
 
-  if (!isPublicRoute && (isPending || !session || logoutRequested)) {
+  if (!isPublicRoute && (isPending || !session || !session.user.emailVerified || logoutRequested)) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[var(--bg-canvas)] p-6">
         <div className="text-sm text-[var(--text-secondary)]" role="status">

@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { getFreshSession, isSameOriginRequest } from "@/lib/admin/access";
+import { isSameOriginRequest } from "@/lib/admin/access";
+import { getVerifiedSession } from "@/lib/server/authenticated-user";
 import { sendMarketingConfirmation } from "@/lib/email/send-marketing-confirmation";
 import { db } from "@/lib/db/db";
 import { user } from "@/lib/db/schema";
@@ -8,7 +9,7 @@ import { user } from "@/lib/db/schema";
 const preferenceSchema = z.object({ marketingEmailOptIn: z.boolean() });
 
 export async function GET(request: Request) {
-  const session = await getFreshSession(request.headers);
+  const session = await getVerifiedSession(request.headers);
   if (!session) return Response.json({ error: "Sign in required." }, { status: 401 });
 
   const [account] = await db.select({
@@ -26,7 +27,7 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const session = await getFreshSession(request.headers);
+  const session = await getVerifiedSession(request.headers);
   if (!session) return Response.json({ error: "Sign in required." }, { status: 401 });
   if (!isSameOriginRequest(request)) return Response.json({ error: "Invalid request origin." }, { status: 403 });
 

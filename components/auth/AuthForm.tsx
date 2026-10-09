@@ -5,9 +5,9 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AlertCircle, Code2, Globe2, X } from "lucide-react";
 import AppLogoFull from "@/components/app/shared/AppLogoFull";
-import { signIn, signUp, useSession } from "@/lib/auth/auth-client";
+import { sendVerificationEmail, signIn, signUp, useSession } from "@/lib/auth/auth-client";
 import { getAuthError } from "@/lib/auth/auth-errors";
-import { getSafeCallbackUrl } from "@/lib/auth/callback-url";
+import { getEmailVerificationCallbackUrl, getSafeCallbackUrl } from "@/lib/auth/callback-url";
 import {
   type AuthFieldName,
   getAuthFieldError,
@@ -32,6 +32,7 @@ export function AuthForm({ mode }: AuthFormProps) {
   const [errors, setErrors] = useState<FormErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [requiresVerification, setRequiresVerification] = useState(false);
   const [loading, setLoading] = useState(false);
   const [pendingProvider, setPendingProvider] = useState<"google" | "github" | null>(null);
   const requestInProgress = useRef(false);
@@ -39,6 +40,7 @@ export function AuthForm({ mode }: AuthFormProps) {
   const { data: session, isPending } = useSession();
   const searchParams = useSearchParams();
   const callbackUrl = getSafeCallbackUrl(searchParams.get("callbackUrl"));
+  const verificationCallbackUrl = getEmailVerificationCallbackUrl(callbackUrl);
 
   const goToApp = useCallback(() => {
     if (hasStartedNavigation.current) return;
@@ -49,11 +51,20 @@ export function AuthForm({ mode }: AuthFormProps) {
   }, [callbackUrl]);
 
   useEffect(() => {
-    if (!isPending && session) goToApp();
-  }, [goToApp, isPending, session]);
+    if (isPending || !session) return;
+    if (session.user.emailVerified) {
+      goToApp();
+    } else {
+      window.location.replace(verificationCallbackUrl);
+    }
+  }, [goToApp, isPending, session, verificationCallbackUrl]);
 
   useEffect(() => {
-    if (searchParams.get("authError") === "provider") {
+    if (searchParams.get("error")?.toLowerCase().includes("email_not_verified")) {
+      const authError = getAuthError({ code: "EMAIL_NOT_VERIFIED" }, mode);
+      setError(authError.message);
+      setRequiresVerification(true);
+    } else if (searchParams.get("authError") === "provider") {
       setError(getAuthError({ code: "PROVIDER_ERROR" }, mode).message);
     }
   }, [mode, searchParams]);
@@ -72,12 +83,14 @@ export function AuthForm({ mode }: AuthFormProps) {
     });
     setError(null);
     setNotice(null);
+    setRequiresVerification(false);
   };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
     setNotice(null);
+    setRequiresVerification(false);
 
     const newErrors: FormErrors = {};
     const validation = mode === "signin"
@@ -111,7 +124,9 @@ export function AuthForm({ mode }: AuthFormProps) {
         const credentials = signInCredentialsSchema.parse(formData);
         const result = await signIn.email({ email: credentials.email, password: credentials.password, callbackURL: callbackUrl });
         if (result?.error) {
-          setError(getAuthError(result.error, mode).message);
+          const authError = getAuthError(result.error, mode);
+          setError(authError.message);
+          setRequiresVerification(authError.type === "EMAIL_NOT_VERIFIED");
           setFormData((previous) => ({ ...previous, password: "", passwordConfirm: "" }));
           return;
         }
@@ -119,7 +134,7 @@ export function AuthForm({ mode }: AuthFormProps) {
         goToApp();
       } else {
         const credentials = signUpCredentialsSchema.parse(formData);
-        const result = await signUp.email({ name: credentials.name, email: credentials.email, password: credentials.password, marketingEmailOptIn: credentials.marketingEmailOptIn, callbackURL: callbackUrl });
+        const result = await signUp.email({ name: credentials.name, email: credentials.email, password: credentials.password, marketingEmailOptIn: credentials.marketingEmailOptIn, callbackURL: verificationCallbackUrl });
         if (result?.error) {
           setError(getAuthError(result.error, mode).message);
           setFormData((previous) => ({ ...previous, password: "", passwordConfirm: "" }));
@@ -127,11 +142,38 @@ export function AuthForm({ mode }: AuthFormProps) {
         }
         if (!result?.data) throw new Error("Sign up failed");
         setFormData((previous) => ({ ...previous, password: "", passwordConfirm: "" }));
-        setNotice("If an account can be created with these details, you can now sign in.");
+        setNotice("If an account can be created with these details, a verification email has been sent. Verify your email before signing in.");
+        setRequiresVerification(true);
       }
     } catch (submissionError) {
-      setError(getAuthError(submissionError, mode).message);
+      const authError = getAuthError(submissionError, mode);
+      setError(authError.message);
+      setRequiresVerification(authError.type === "EMAIL_NOT_VERIFIED");
       setFormData((previous) => ({ ...previous, password: "", passwordConfirm: "" }));
+    } finally {
+      requestInProgress.current = false;
+      setLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    const emailError = getAuthFieldError("email", formData.email, mode, formData.password);
+    if (requestInProgress.current || emailError) {
+      if (emailError) setErrors((previous) => ({ ...previous, email: emailError }));
+      return;
+    }
+
+    requestInProgress.current = true;
+    setLoading(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await sendVerificationEmail({ email: formData.email.trim(), callbackURL: verificationCallbackUrl });
+      if (result?.error) throw result.error;
+      setRequiresVerification(true);
+      setNotice("If this address has an account that needs verification, a fresh link has been sent.");
+    } catch (resendError) {
+      setError(getAuthError(resendError, mode).message);
     } finally {
       requestInProgress.current = false;
       setLoading(false);
@@ -153,7 +195,9 @@ export function AuthForm({ mode }: AuthFormProps) {
       errorCallbackURL.searchParams.set("callbackUrl", callbackUrl);
       const result = await signIn.social({ provider, callbackURL: callbackUrl, errorCallbackURL: errorCallbackURL.toString() });
       if (result?.error) {
-        setError(getAuthError(result.error, mode).message);
+        const authError = getAuthError(result.error, mode);
+        setError(authError.message);
+        setRequiresVerification(authError.type === "EMAIL_NOT_VERIFIED");
       } else if (!result?.data) {
         throw new Error("OAuth provider unavailable");
       }
@@ -196,7 +240,7 @@ export function AuthForm({ mode }: AuthFormProps) {
           ) : null}
           {notice ? <p className="app-form-hint rounded-[var(--radius-control)] border border-[var(--border-subtle)] px-3 py-3" role="status">{notice}</p> : null}
 
-          {mode === "signup" ? (
+      {mode === "signup" ? (
             <AuthField id="name" name="name" label="Full Name" type="text" value={formData.name} onChange={handleChange} error={errors.name} placeholder="Your name" autoComplete="name" disabled={loading} />
           ) : null}
           <AuthField id="email" name="email" label="Email" type="email" value={formData.email} onChange={handleChange} error={errors.email} placeholder="you@example.com" autoComplete="email" disabled={loading} />
@@ -221,6 +265,12 @@ export function AuthForm({ mode }: AuthFormProps) {
                 This choice applies to email sign-up. If you use Google or GitHub, you can opt in later from Account Settings.
               </p>
             </div>
+      ) : null}
+
+          {requiresVerification ? (
+            <button type="button" onClick={() => void handleResendVerification()} disabled={loading || Boolean(errors.email)} className="app-button-secondary w-full disabled:cursor-not-allowed">
+              {loading ? "Sending verification email..." : "Resend verification email"}
+            </button>
           ) : null}
 
           <button type="submit" disabled={loading || hasFieldErrors} className="app-button w-full disabled:cursor-not-allowed">

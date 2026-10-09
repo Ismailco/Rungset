@@ -64,6 +64,8 @@ export default function AdminDashboard({ adminName }: { adminName: string }) {
   const [sending, setSending] = useState(false);
   const [sendStatus, setSendStatus] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [resendingUserId, setResendingUserId] = useState<string | null>(null);
+  const [verificationAction, setVerificationAction] = useState<{ userId: string; message: string; error: boolean } | null>(null);
   const usersRequestId = useRef(0);
 
   const loadOverview = useCallback(async () => {
@@ -155,6 +157,31 @@ export default function AdminDashboard({ adminName }: { adminName: string }) {
     }
   }
 
+  async function resendUserVerification(userId: string) {
+    if (resendingUserId) return;
+
+    setResendingUserId(userId);
+    setVerificationAction(null);
+    try {
+      const response = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? 'Could not send the verification email.');
+      setVerificationAction({ userId, message: 'Verification email queued.', error: false });
+    } catch (error) {
+      setVerificationAction({
+        userId,
+        message: error instanceof Error ? error.message : 'Could not send the verification email.',
+        error: true,
+      });
+    } finally {
+      setResendingUserId(null);
+    }
+  }
+
   return (
     <AppPage>
       <AppPageHeader
@@ -198,6 +225,9 @@ export default function AdminDashboard({ adminName }: { adminName: string }) {
             onSearch={() => { setUserPage(1); setAppliedSearch(userSearch.trim()); }}
             onPageChange={setUserPage}
             onRefresh={() => void loadUsers()}
+            onResendVerification={(userId) => void resendUserVerification(userId)}
+            resendingUserId={resendingUserId}
+            verificationAction={verificationAction}
           />
         ) : null}
         {activeTab === 'email' ? (
@@ -263,6 +293,9 @@ function UsersPanel({
   onSearch,
   onPageChange,
   onRefresh,
+  onResendVerification,
+  resendingUserId,
+  verificationAction,
 }: {
   users: AdminUser[];
   total: number;
@@ -275,6 +308,9 @@ function UsersPanel({
   onSearch: () => void;
   onPageChange: (page: number) => void;
   onRefresh: () => void;
+  onResendVerification: (userId: string) => void;
+  resendingUserId: string | null;
+  verificationAction: { userId: string; message: string; error: boolean } | null;
 }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   return (
@@ -296,25 +332,47 @@ function UsersPanel({
       </div>
       {error ? <ErrorNotice className="mt-4">{error}</ErrorNotice> : null}
       <div className="mt-4 overflow-x-auto">
-        <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[900px] border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-[var(--border-default)] text-xs uppercase tracking-wide text-[var(--text-muted)]">
               <th className="px-3 py-3 font-medium">Name</th>
               <th className="px-3 py-3 font-medium">Email</th>
+              <th className="px-3 py-3 font-medium">Verification</th>
               <th className="px-3 py-3 font-medium">Joined</th>
               <th className="px-3 py-3 font-medium">Last login</th>
               <th className="px-3 py-3 font-medium">Email updates</th>
             </tr>
           </thead>
           <tbody>
-            {loading ? <tr><td className="px-3 py-8 text-[var(--text-secondary)]" colSpan={5}>Loading users…</td></tr> : null}
-            {!loading && users.length === 0 ? <tr><td className="px-3 py-8 text-[var(--text-secondary)]" colSpan={5}>No users found.</td></tr> : null}
+            {loading ? <tr><td className="px-3 py-8 text-[var(--text-secondary)]" colSpan={6}>Loading users…</td></tr> : null}
+            {!loading && users.length === 0 ? <tr><td className="px-3 py-8 text-[var(--text-secondary)]" colSpan={6}>No users found.</td></tr> : null}
             {!loading ? users.map((account) => (
               <tr key={account.id} className="border-b border-[var(--border-subtle)] last:border-0">
                 <td className="px-3 py-3 font-medium text-white">{account.name}</td>
                 <td className="px-3 py-3 text-[var(--text-secondary)]">
                   <span>{account.email}</span>
-                  {!account.emailVerified ? <span className="ml-2 text-xs text-[var(--warning)]">Unverified</span> : null}
+                </td>
+                <td className="px-3 py-3">
+                  <div className="flex flex-col items-start gap-2">
+                    <span className={`app-pill ${account.emailVerified ? 'app-pill-success' : 'app-pill-warning'}`}>
+                      {account.emailVerified ? 'Verified' : 'Unverified'}
+                    </span>
+                    {!account.emailVerified ? (
+                      <button
+                        type="button"
+                        className="app-button-secondary app-button-sm"
+                        disabled={Boolean(resendingUserId)}
+                        onClick={() => onResendVerification(account.id)}
+                      >
+                        {resendingUserId === account.id ? 'Sending…' : 'Send verification email'}
+                      </button>
+                    ) : null}
+                    {verificationAction?.userId === account.id ? (
+                      <span role={verificationAction.error ? 'alert' : 'status'} className={`text-xs ${verificationAction.error ? 'text-[var(--danger)]' : 'text-[var(--success)]'}`}>
+                        {verificationAction.message}
+                      </span>
+                    ) : null}
+                  </div>
                 </td>
                 <td className="px-3 py-3 text-[var(--text-secondary)]">{formatDate(account.createdAt)}</td>
                 <td className="px-3 py-3 text-[var(--text-secondary)]">{formatDate(account.lastLoginAt)}</td>

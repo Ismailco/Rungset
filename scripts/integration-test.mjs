@@ -13,6 +13,14 @@ function run(command, args) {
   if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed\n${result.stdout}\n${result.stderr}`);
 }
 
+function markEmailVerified(email) {
+  const escapedEmail = email.replace(/'/g, "''");
+  run('pnpm', [
+    'exec', 'wrangler', 'd1', 'execute', 'goalgenius_db', '--local', '--persist-to', persistDir,
+    '--config', 'wrangler.jsonc', '--command', `UPDATE user SET email_verified = 1 WHERE email = '${escapedEmail}'`,
+  ]);
+}
+
 class Client {
   constructor() { this.cookies = new Map(); }
 
@@ -74,6 +82,7 @@ try {
   const password = 'Rungset-test-password-2026';
   for (const [client, email, name] of [[userA, 'rungset-a@example.com', 'User A'], [userB, 'rungset-b@example.com', 'User B']]) {
     await client.expect('/api/auth/sign-up/email', 200, { method: 'POST', body: { name, email, password } });
+    markEmailVerified(email);
     await client.expect('/api/auth/sign-in/email', 200, { method: 'POST', body: { email, password } });
   }
 

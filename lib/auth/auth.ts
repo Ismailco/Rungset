@@ -6,9 +6,27 @@ import { signInCredentialsSchema, signUpCredentialsSchema } from "@/lib/auth/aut
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { and, eq } from "drizzle-orm";
 import { createEmailPreferenceToken } from "@/lib/email/preference-token";
+import { getEmailVerificationCallbackUrl, getSafeCallbackUrl } from "@/lib/auth/callback-url";
 import { user as userTable } from "@/lib/db/schema";
 
 const AUTH_BASE_PATH = "/api/auth";
+
+function getVerificationUrl(url: string, request?: Request) {
+  const requestPath = request ? new URL(request.url).pathname : "";
+  const isEmailSignIn = requestPath === `${AUTH_BASE_PATH}/sign-in/email`;
+  const isOAuthCallback = requestPath.startsWith(`${AUTH_BASE_PATH}/callback/`);
+  if (!isEmailSignIn && !isOAuthCallback) return url;
+
+  const verificationUrl = new URL(url);
+  const callbackUrl = verificationUrl.searchParams.get("callbackURL");
+  if (!callbackUrl) return url;
+
+  verificationUrl.searchParams.set(
+    "callbackURL",
+    getEmailVerificationCallbackUrl(getSafeCallbackUrl(callbackUrl)),
+  );
+  return verificationUrl.toString();
+}
 
 function readEnv(name: string) {
   const value = process.env[name]?.trim();
@@ -101,9 +119,45 @@ export const auth = betterAuth({
   // explicit, localhost-only test switch prevents Better Auth's production
   // limiter from coupling independent browser journeys in that disposable DB.
   ...(disableRateLimitForLocalTests ? { rateLimit: { enabled: false } } : {}),
+  emailVerification: {
+    sendVerificationEmail: async ({ user, url }, request) => {
+      try {
+        const { env, ctx } = getCloudflareContext();
+        const verificationUrl = getVerificationUrl(url, request);
+        const safeName = escapeEmailHtml(user.name);
+        const safeUrl = escapeEmailHtml(verificationUrl);
+        const send = env.EMAIL.send({
+          from: "hello@rungset.com",
+          to: user.email,
+          subject: "Verify your Rungset email address",
+          text: [
+            `Hello ${user.name},`,
+            "",
+            "Welcome to Rungset. Confirm your email address to activate your account:",
+            verificationUrl,
+            "",
+            "This link expires in one hour. If you did not create a Rungset account, you can ignore this email.",
+          ].join("\n"),
+          html: `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Verify your Rungset email</title></head><body><main><h1>Verify your Rungset email</h1><p>Hello ${safeName},</p><p>Welcome to Rungset. Confirm your email address to activate your account.</p><p><a href="${safeUrl}">Verify email address</a></p><p>This link expires in one hour. If you did not create a Rungset account, you can ignore this email.</p></main></body></html>`,
+        }).then(() => {
+          console.info(JSON.stringify({ event: "email_verification_sent" }));
+        }).catch((error: unknown) => {
+          console.error(JSON.stringify({ event: "email_verification_failed", code: getEmailErrorCode(error) }));
+        });
+        ctx.waitUntil(send);
+      } catch (error) {
+        console.error(JSON.stringify({ event: "email_verification_not_scheduled", code: getEmailErrorCode(error) }));
+      }
+    },
+    sendOnSignUp: true,
+    sendOnSignIn: true,
+    expiresIn: 60 * 60,
+    autoSignInAfterVerification: true,
+  },
   emailAndPassword: {
     enabled: true,
     autoSignIn: false,
+    requireEmailVerification: true,
     minPasswordLength: 8,
     maxPasswordLength: 128,
   },
@@ -149,7 +203,7 @@ export const auth = betterAuth({
             const message = [
               `Hi ${newUser.name},`,
               "",
-              "Welcome to Rungset. Your account is ready.",
+              "Welcome to Rungset. Verify your email address before signing in to your account.",
               confirmUrl ? "" : undefined,
               confirmUrl ? "You asked to receive product news and updates. Confirm that choice here:" : undefined,
               confirmUrl,
@@ -223,12 +277,14 @@ export const auth = betterAuth({
       enabled: true,
       clientId: process.env.AUTH_GOOGLE_CLIENT_ID as string,
       clientSecret: process.env.AUTH_GOOGLE_CLIENT_SECRET as string,
+      requireEmailVerification: true,
       // redirectUri: process.env.AUTH_GOOGLE_REDIRECT_URI as string,
     },
     github: {
       enabled: true,
       clientId: process.env.AUTH_GITHUB_CLIENT_ID as string,
       clientSecret: process.env.AUTH_GITHUB_CLIENT_SECRET as string,
+      requireEmailVerification: true,
       // redirectUri: process.env.AUTH_GITHUB_REDIRECT_URI as string,
     },
   },
@@ -239,4 +295,14 @@ function getEmailErrorCode(error: unknown) {
     return error.code;
   }
   return "unknown";
+}
+
+function escapeEmailHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character] ?? character);
 }

@@ -56,7 +56,7 @@ try {
 
   run(['d1', 'migrations', 'apply', 'goalgenius_db', '--local', '--persist-to', persistDir, '--config', configPath]);
   run(['d1', 'execute', 'goalgenius_db', '--local', '--persist-to', persistDir, '--config', configPath, '--command', [
-    "INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('legacy-user', 'Legacy User', 'legacy@example.com', 1, 1, 1)",
+    "INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('legacy-user', 'Legacy User', 'legacy@example.com', 0, 1, 1)",
     "INSERT INTO session (id, expires_at, token, created_at, updated_at, user_id) VALUES ('legacy-session', 9999999999, 'legacy-session-token', 100, 100, 'legacy-user')",
     "INSERT INTO goals (id, user_id, title, description, category, time_frame, status, progress, created_at, updated_at) VALUES ('legacy-goal', 'legacy-user', 'Legacy goal', 'Before execution links', 'career', 'short-term', 'in-progress', 0, 1, 1)",
     "INSERT INTO milestones (id, goal_id, user_id, title, description, date, created_at, updated_at) VALUES ('legacy-milestone', 'legacy-goal', 'legacy-user', 'Legacy milestone', NULL, '2026-01-15', 1, 1)",
@@ -69,6 +69,8 @@ try {
     await cp(join(root, 'drizzle', file), join(migrationsDir, file));
   }
   run(['d1', 'migrations', 'apply', 'goalgenius_db', '--local', '--persist-to', persistDir, '--config', configPath]);
+  run(['d1', 'execute', 'goalgenius_db', '--local', '--persist-to', persistDir, '--config', configPath, '--command',
+    "INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('new-user', 'New User', 'new@example.com', 0, 2, 2)"]);
 
   const rows = query(`SELECT
     (SELECT count(*) FROM goals WHERE id = 'legacy-goal') AS goals,
@@ -77,6 +79,8 @@ try {
     (SELECT count(*) FROM notes WHERE id = 'legacy-note') AS notes,
     (SELECT count(*) FROM check_ins WHERE id = 'legacy-checkin' AND goal_id IS NULL) AS checkins,
     (SELECT last_login_at FROM user WHERE id = 'legacy-user') AS last_login_at,
+    (SELECT email_verified FROM user WHERE id = 'legacy-user') AS legacy_email_verified,
+    (SELECT email_verified FROM user WHERE id = 'new-user') AS new_email_verified,
     (SELECT marketing_email_opt_in FROM user WHERE id = 'legacy-user') AS marketing_opt_in,
     (SELECT marketing_email_pending FROM user WHERE id = 'legacy-user') AS marketing_pending,
     (SELECT marketing_email_consent_at FROM user WHERE id = 'legacy-user') AS marketing_consent_at,
@@ -89,6 +93,8 @@ try {
     notes: 1,
     checkins: 1,
     last_login_at: 100,
+    legacy_email_verified: 1,
+    new_email_verified: 0,
     marketing_opt_in: 0,
     marketing_pending: 0,
     marketing_consent_at: null,
