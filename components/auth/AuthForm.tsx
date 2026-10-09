@@ -28,7 +28,7 @@ interface FormErrors {
 }
 
 export function AuthForm({ mode }: AuthFormProps) {
-  const [formData, setFormData] = useState({ name: "", email: "", password: "", passwordConfirm: "" });
+  const [formData, setFormData] = useState({ name: "", email: "", password: "", passwordConfirm: "", marketingEmailOptIn: false });
   const [errors, setErrors] = useState<FormErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -119,7 +119,7 @@ export function AuthForm({ mode }: AuthFormProps) {
         goToApp();
       } else {
         const credentials = signUpCredentialsSchema.parse(formData);
-        const result = await signUp.email({ name: credentials.name, email: credentials.email, password: credentials.password, callbackURL: callbackUrl });
+        const result = await signUp.email({ name: credentials.name, email: credentials.email, password: credentials.password, marketingEmailOptIn: credentials.marketingEmailOptIn, callbackURL: callbackUrl });
         if (result?.error) {
           setError(getAuthError(result.error, mode).message);
           setFormData((previous) => ({ ...previous, password: "", passwordConfirm: "" }));
@@ -203,6 +203,19 @@ export function AuthForm({ mode }: AuthFormProps) {
           <AuthField id="password" name="password" label="Password" type="password" value={formData.password} onChange={handleChange} error={errors.password} placeholder="Enter your password" autoComplete={mode === "signin" ? "current-password" : "new-password"} disabled={loading} hint={mode === "signup" ? "At least 8 characters with uppercase, lowercase, and a number." : undefined} />
           {mode === "signup" ? (
             <AuthField id="passwordConfirm" name="passwordConfirm" label="Confirm Password" type="password" value={formData.passwordConfirm} onChange={handleChange} error={errors.passwordConfirm} placeholder="Re-enter your password" autoComplete="new-password" disabled={loading} />
+          ) : null}
+
+          {mode === "signup" ? (
+            <label className="flex items-start gap-3 text-sm leading-5 text-[var(--text-secondary)]">
+              <input
+                type="checkbox"
+                checked={formData.marketingEmailOptIn}
+                onChange={(event) => setFormData((previous) => ({ ...previous, marketingEmailOptIn: event.target.checked }))}
+                disabled={loading}
+                className="mt-1 h-4 w-4 shrink-0 accent-[var(--brand-primary)]"
+              />
+              <span>Send me optional product news and updates. I can unsubscribe at any time.</span>
+            </label>
           ) : null}
 
           <button type="submit" disabled={loading || hasFieldErrors} className="app-button w-full disabled:cursor-not-allowed">

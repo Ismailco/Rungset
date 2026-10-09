@@ -6,6 +6,12 @@ export const user = sqliteTable('user', {
 	email: text('email').notNull().unique(),
 	emailVerified: integer('email_verified', { mode: 'boolean' }).notNull(),
 	image: text('image'),
+	lastLoginAt: integer('last_login_at', { mode: 'timestamp' }),
+	marketingEmailOptIn: integer('marketing_email_opt_in', { mode: 'boolean' }).notNull().default(false),
+	marketingEmailPending: integer('marketing_email_pending', { mode: 'boolean' }).notNull().default(false),
+	marketingEmailConsentAt: integer('marketing_email_consent_at', { mode: 'timestamp' }),
+	marketingEmailUnsubscribedAt: integer('marketing_email_unsubscribed_at', { mode: 'timestamp' }),
+	marketingEmailTokenVersion: integer('marketing_email_token_version').notNull().default(0),
 	createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 	updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 });

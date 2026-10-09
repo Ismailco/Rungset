@@ -3,6 +3,10 @@ import { APIError, createAuthMiddleware } from "better-auth/api";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { signInCredentialsSchema, signUpCredentialsSchema } from "@/lib/auth/auth-validation";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { eq } from "drizzle-orm";
+import { createEmailPreferenceToken } from "@/lib/email/preference-token";
+import { user as userTable } from "@/lib/db/schema";
 
 const AUTH_BASE_PATH = "/api/auth";
 
@@ -49,6 +53,43 @@ export const auth = betterAuth({
   database: drizzleAdapter(db, {
     provider: "sqlite",
   }),
+  user: {
+    additionalFields: {
+      marketingEmailOptIn: {
+        type: "boolean",
+        required: false,
+        defaultValue: false,
+        input: true,
+      },
+      marketingEmailPending: {
+        type: "boolean",
+        required: false,
+        defaultValue: false,
+        input: false,
+      },
+      marketingEmailConsentAt: {
+        type: "date",
+        required: false,
+        input: false,
+      },
+      marketingEmailUnsubscribedAt: {
+        type: "date",
+        required: false,
+        input: false,
+      },
+      marketingEmailTokenVersion: {
+        type: "number",
+        required: false,
+        defaultValue: 0,
+        input: false,
+      },
+      lastLoginAt: {
+        type: "date",
+        required: false,
+        input: false,
+      },
+    },
+  },
   session: {
     cookieCache: {
       enabled: true,
@@ -65,6 +106,65 @@ export const auth = betterAuth({
     autoSignIn: false,
     minPasswordLength: 8,
     maxPasswordLength: 128,
+  },
+  databaseHooks: {
+    user: {
+      create: {
+        before: async (newUser) => {
+          const optedIn = newUser.marketingEmailOptIn === true;
+          return {
+            data: {
+              ...newUser,
+              marketingEmailOptIn: false,
+              marketingEmailPending: optedIn,
+              marketingEmailConsentAt: null,
+              marketingEmailUnsubscribedAt: null,
+              marketingEmailTokenVersion: 0,
+            },
+          };
+        },
+        after: async (newUser) => {
+          try {
+            const { env, ctx } = getCloudflareContext();
+            const confirmUrl = newUser.marketingEmailPending
+              ? `${env.NEXT_PUBLIC_APP_URL}/email-preferences/confirm?token=${encodeURIComponent(await createEmailPreferenceToken(newUser.id, Number(newUser.marketingEmailTokenVersion ?? 0), "confirm", env.BETTER_AUTH_SECRET))}`
+              : undefined;
+            const message = [
+              `Hi ${newUser.name},`,
+              "",
+              "Welcome to Rungset. Your account is ready.",
+              confirmUrl ? "" : undefined,
+              confirmUrl ? "You asked to receive product news and updates. Confirm that choice here:" : undefined,
+              confirmUrl,
+              "",
+              "— The Rungset team",
+            ].filter((line): line is string => typeof line === "string").join("\n");
+            const send = env.EMAIL.send({
+              from: "hello@rungset.com",
+              to: newUser.email,
+              subject: "Welcome to Rungset",
+              text: message,
+            }).then(() => {
+              console.info(JSON.stringify({ event: "welcome_email_sent" }));
+            }).catch((error: unknown) => {
+              console.error(JSON.stringify({ event: "welcome_email_failed", code: getEmailErrorCode(error) }));
+            });
+            ctx.waitUntil(send);
+          } catch (error) {
+            console.error(JSON.stringify({ event: "welcome_email_not_scheduled", code: getEmailErrorCode(error) }));
+          }
+        },
+      },
+    },
+    session: {
+      create: {
+        after: async (newSession) => {
+          await db.update(userTable)
+            .set({ lastLoginAt: new Date() })
+            .where(eq(userTable.id, newSession.userId));
+        },
+      },
+    },
   },
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
@@ -101,3 +201,10 @@ export const auth = betterAuth({
     },
   },
 });
+
+function getEmailErrorCode(error: unknown) {
+  if (error && typeof error === "object" && "code" in error && typeof error.code === "string") {
+    return error.code;
+  }
+  return "unknown";
+}
