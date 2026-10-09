@@ -84,6 +84,7 @@ test("unverified users must verify before sign-in and can request a fresh link",
   const firstResponse = await completeSignUp(page, "Original Account Name", email.toUpperCase());
   expect(firstResponse.status()).toBe(200);
   expect(firstResponse.request().postDataJSON()).toMatchObject({ email });
+  expect(firstResponse.request().postDataJSON()).toHaveProperty("callbackURL", "/auth/verify-email?callbackUrl=%2Fdashboard");
   expect(firstResponse.request().postDataJSON()).not.toHaveProperty("passwordConfirm");
   const firstBody = await firstResponse.json() as { token: string | null; user: Record<string, unknown> };
   expect(firstBody.token).toBeNull();
@@ -133,11 +134,31 @@ test("unverified users must verify before sign-in and can request a fresh link",
   await page.getByRole("button", { name: "Resend verification email" }).click();
   const resendResponse = await resendResponsePromise;
   expect(resendResponse.status()).toBe(200);
+  expect(resendResponse.request().postDataJSON()).toHaveProperty("callbackURL", "/auth/verify-email?callbackUrl=%2Fdashboard");
   await expect(page.getByRole("status")).toContainText("a fresh link has been sent");
 
   markTestEmailVerified(email);
   await signIn(email, TEST_PASSWORD);
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 });
+});
+
+test("invalid verification links offer a resend and preserve the requested destination", async ({ page }) => {
+  const callbackUrl = "/goals/123?tab=milestones";
+  await page.goto(`/auth/verify-email?callbackUrl=${encodeURIComponent(callbackUrl)}&error=invalid_token`);
+  await expect(page.getByRole("alert")).toHaveText("That verification link is invalid or has expired. Request a fresh link below.");
+
+  await page.getByLabel("Email").fill("expired-link@example.com");
+  const resendResponsePromise = page.waitForResponse((response) => (
+    response.url().includes("/api/auth/send-verification-email") && response.request().method() === "POST"
+  ));
+  await page.getByRole("button", { name: "Send verification email" }).click();
+  const resendResponse = await resendResponsePromise;
+  expect(resendResponse.status()).toBe(200);
+  expect(resendResponse.request().postDataJSON()).toMatchObject({
+    email: "expired-link@example.com",
+    callbackURL: `/auth/verify-email?callbackUrl=${encodeURIComponent(callbackUrl)}`,
+  });
+  await expect(page.getByRole("status")).toContainText("a fresh link has been sent");
 });
 
 test("rate limits and provider failures are shown safely while requests are pending", async ({ page }) => {

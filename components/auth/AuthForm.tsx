@@ -7,7 +7,7 @@ import { AlertCircle, Code2, Globe2, X } from "lucide-react";
 import AppLogoFull from "@/components/app/shared/AppLogoFull";
 import { sendVerificationEmail, signIn, signUp, useSession } from "@/lib/auth/auth-client";
 import { getAuthError } from "@/lib/auth/auth-errors";
-import { getSafeCallbackUrl } from "@/lib/auth/callback-url";
+import { getEmailVerificationCallbackUrl, getSafeCallbackUrl } from "@/lib/auth/callback-url";
 import {
   type AuthFieldName,
   getAuthFieldError,
@@ -40,6 +40,7 @@ export function AuthForm({ mode }: AuthFormProps) {
   const { data: session, isPending } = useSession();
   const searchParams = useSearchParams();
   const callbackUrl = getSafeCallbackUrl(searchParams.get("callbackUrl"));
+  const verificationCallbackUrl = getEmailVerificationCallbackUrl(callbackUrl);
 
   const goToApp = useCallback(() => {
     if (hasStartedNavigation.current) return;
@@ -133,7 +134,7 @@ export function AuthForm({ mode }: AuthFormProps) {
         goToApp();
       } else {
         const credentials = signUpCredentialsSchema.parse(formData);
-        const result = await signUp.email({ name: credentials.name, email: credentials.email, password: credentials.password, marketingEmailOptIn: credentials.marketingEmailOptIn, callbackURL: callbackUrl });
+        const result = await signUp.email({ name: credentials.name, email: credentials.email, password: credentials.password, marketingEmailOptIn: credentials.marketingEmailOptIn, callbackURL: verificationCallbackUrl });
         if (result?.error) {
           setError(getAuthError(result.error, mode).message);
           setFormData((previous) => ({ ...previous, password: "", passwordConfirm: "" }));
@@ -167,7 +168,7 @@ export function AuthForm({ mode }: AuthFormProps) {
     setError(null);
     setNotice(null);
     try {
-      const result = await sendVerificationEmail({ email: formData.email.trim(), callbackURL: callbackUrl });
+      const result = await sendVerificationEmail({ email: formData.email.trim(), callbackURL: verificationCallbackUrl });
       if (result?.error) throw result.error;
       setRequiresVerification(true);
       setNotice("If this address has an account that needs verification, a fresh link has been sent.");

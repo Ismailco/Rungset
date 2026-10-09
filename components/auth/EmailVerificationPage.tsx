@@ -2,11 +2,17 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import AppLogoFull from '@/components/app/shared/AppLogoFull';
 import { sendVerificationEmail, signOut, useSession } from '@/lib/auth/auth-client';
+import { getEmailVerificationCallbackUrl, getSafeCallbackUrl } from '@/lib/auth/callback-url';
 
 export function EmailVerificationPage() {
   const { data: session, isPending } = useSession();
+  const searchParams = useSearchParams();
+  const callbackUrl = getSafeCallbackUrl(searchParams.get('callbackUrl'));
+  const verificationCallbackUrl = getEmailVerificationCallbackUrl(callbackUrl);
+  const hasVerificationError = searchParams.has('error');
   const [email, setEmail] = useState('');
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -24,7 +30,7 @@ export function EmailVerificationPage() {
     setError(null);
     setNotice(null);
     try {
-      const result = await sendVerificationEmail({ email: email.trim(), callbackURL: '/' });
+      const result = await sendVerificationEmail({ email: email.trim(), callbackURL: verificationCallbackUrl });
       if (result?.error) throw result.error;
       setNotice('If this address has an account that needs verification, a fresh link has been sent.');
     } catch {
@@ -46,7 +52,7 @@ export function EmailVerificationPage() {
           <div className="mb-8"><AppLogoFull className="h-8 max-w-40" /></div>
           <h1 id="verification-title" className="text-2xl font-semibold tracking-tight text-white">Email verified</h1>
           <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">Your email address is verified. You can continue to Rungset.</p>
-          <Link href="/dashboard" className="app-button mt-6 w-full">Continue to Rungset</Link>
+          <Link href={callbackUrl} className="app-button mt-6 w-full">Continue to Rungset</Link>
         </section>
       </main>
     );
@@ -60,6 +66,11 @@ export function EmailVerificationPage() {
         <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
           Confirm your email address before using your Rungset workspace. Check your inbox and spam folder for the verification link.
         </p>
+        {hasVerificationError && !notice ? (
+          <p className="mt-4 rounded-[var(--radius-control)] border border-[rgba(255,111,130,0.3)] bg-[var(--danger-soft)] px-3 py-3 text-sm text-[#ffdce2]" role="alert">
+            That verification link is invalid or has expired. Request a fresh link below.
+          </p>
+        ) : null}
 
         <form onSubmit={handleSubmit} className="mt-7 space-y-4">
           <div>

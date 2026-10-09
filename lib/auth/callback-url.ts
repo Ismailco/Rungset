@@ -34,3 +34,7 @@ export function getSafeCallbackUrl(callbackUrl: string | null): string {
     return DEFAULT_CALLBACK_URL;
   }
 }
+
+export function getEmailVerificationCallbackUrl(callbackUrl: string): string {
+  return `/auth/verify-email?callbackUrl=${encodeURIComponent(callbackUrl)}`;
+}
