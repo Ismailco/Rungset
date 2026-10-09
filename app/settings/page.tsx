@@ -1,411 +1,15 @@
 'use client';
 
-import Image from 'next/image';
-import { useEffect, useMemo, useState } from 'react';
-import {
-  Bell,
-  CloudDownload,
-  Database,
-  Download,
-  LayoutPanelLeft,
-  LogOut,
-  ShieldCheck,
-  Trash2,
-  UserRound,
-} from 'lucide-react';
-import { useNotification } from '@/app/providers/NotificationProvider';
-import { cacheAppPages } from '@/app/providers/ServiceWorkerProvider';
-import type { Todo } from '@/app/types';
-import { AppPage, AppPanel } from '@/components/app/shared/AppPage';
 import AlertModal from '@/components/common/AlertModal';
-import LoadingSpinner from '@/components/common/LoadingSpinner';
-import {
-  DEFAULT_APP_SETTINGS,
-  readAppSettings,
-  readPwaCacheReady,
-  readSidebarCollapsed,
-  subscribeToAppSettings,
-  writeAppSettings,
-  writePwaCacheReady,
-  writeSidebarCollapsed,
-  type AppSettings,
-} from '@/lib/app-settings';
-import { signOut, useSession } from '@/lib/auth/auth-client';
-import {
-  clearUserCache,
-  clearOfflineCaches,
-  deleteCheckIn,
-  deleteGoal,
-  deleteMilestone,
-  deleteNote,
-  deleteTodo,
-  getCheckIns,
-  getGoals,
-  getMilestones,
-  getNotes,
-  getTodos,
-  getWorkspaceExport,
-} from '@/lib/storage';
-import { WORKSPACE_SYNC_EVENT } from '@/lib/workspace-sync-events';
-
-type NotificationPermissionState = NotificationPermission | 'unsupported';
-
-interface WorkspaceCounts {
-  checkIns: number;
-  goals: number;
-  milestones: number;
-  notes: number;
-  todos: number;
-}
-
-const EMPTY_COUNTS: WorkspaceCounts = {
-  checkIns: 0,
-  goals: 0,
-  milestones: 0,
-  notes: 0,
-  todos: 0,
-};
-
-interface ToggleRowProps {
-  checked: boolean;
-  description: string;
-  label: string;
-  onChange: (checked: boolean) => void;
-}
-
-function ToggleRow({ checked, description, label, onChange }: ToggleRowProps) {
-  return (
-    <div className="app-setting-row">
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-white">{label}</p>
-        <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
-          {description}
-        </p>
-      </div>
-
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        onClick={() => onChange(!checked)}
-        data-checked={checked}
-        className="app-switch mt-0.5 focus-visible:outline-none"
-      >
-        <span
-          className="app-switch-thumb"
-        />
-      </button>
-    </div>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-}: {
-  label: string;
-  value: number;
-}) {
-  return (
-    <div className="border-b border-[var(--border-subtle)] py-3 last:border-b-0">
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-        {label}
-      </p>
-      <p className="mt-1 text-xl font-semibold tracking-[-0.02em] text-white">
-        {value}
-      </p>
-    </div>
-  );
-}
+import { AccountSettingsSection } from '@/components/app/settings/AccountSettingsSection';
+import { NotificationsOfflineSection } from '@/components/app/settings/NotificationsOfflineSection';
+import { WorkspaceBehaviorSection } from '@/components/app/settings/WorkspaceBehaviorSection';
+import { WorkspaceDataSection } from '@/components/app/settings/WorkspaceDataSection';
+import { AppPage } from '@/components/app/shared/AppPage';
+import { useSettingsController } from './useSettingsController';
 
 export default function SettingsPage() {
-  const { data: session } = useSession();
-  const { hasPermission, requestPermission } = useNotification();
-  const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [pwaCacheReady, setPwaCacheReady] = useState(false);
-  const [notificationPermission, setNotificationPermission] =
-    useState<NotificationPermissionState>('default');
-  const [counts, setCounts] = useState<WorkspaceCounts>(EMPTY_COUNTS);
-  const [isOnline, setIsOnline] = useState(true);
-  const [isExporting, setIsExporting] = useState(false);
-  const [isCaching, setIsCaching] = useState(false);
-  const [isClearingCache, setIsClearingCache] = useState(false);
-  const [isResettingData, setIsResettingData] = useState(false);
-  const [alert, setAlert] = useState<{
-    show: boolean;
-    title: string;
-    message: string;
-    type: 'info' | 'success' | 'warning' | 'error';
-    isConfirmation?: boolean;
-    onConfirm?: () => void;
-  }>({
-    show: false,
-    title: '',
-    message: '',
-    type: 'info',
-  });
-
-  async function loadWorkspaceCounts() {
-    const [goals, milestones, notes, todos, checkIns] = await Promise.all([
-      getGoals(),
-      getMilestones(),
-      getNotes(),
-      getTodos(),
-      getCheckIns(),
-    ]);
-
-    setCounts({
-      checkIns: checkIns.length,
-      goals: goals.length,
-      milestones: milestones.length,
-      notes: notes.length,
-      todos: todos.length,
-    });
-  }
-
-  useEffect(() => {
-    const syncSettings = () => {
-      setSettings(readAppSettings());
-      setSidebarCollapsed(readSidebarCollapsed());
-      setPwaCacheReady(readPwaCacheReady());
-      setIsOnline(typeof navigator === 'undefined' ? true : navigator.onLine);
-
-      if (typeof window !== 'undefined' && 'Notification' in window) {
-        setNotificationPermission(Notification.permission);
-      } else {
-        setNotificationPermission('unsupported');
-      }
-    };
-
-    syncSettings();
-    void loadWorkspaceCounts();
-
-    const unsubscribe = subscribeToAppSettings(syncSettings);
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    window.addEventListener(WORKSPACE_SYNC_EVENT, loadWorkspaceCounts);
-
-    return () => {
-      unsubscribe();
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-      window.removeEventListener(WORKSPACE_SYNC_EVENT, loadWorkspaceCounts);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (hasPermission) {
-      setNotificationPermission('granted');
-    }
-  }, [hasPermission]);
-
-  const totalItems = useMemo(
-    () =>
-      counts.goals +
-      counts.milestones +
-      counts.notes +
-      counts.todos +
-      counts.checkIns,
-    [counts],
-  );
-
-  function updateSettings(nextPartial: Partial<AppSettings>) {
-    const nextSettings = writeAppSettings(nextPartial);
-    setSettings(nextSettings);
-  }
-
-  function downloadJsonFile(filename: string, data: unknown) {
-    const blob = new Blob([JSON.stringify(data, null, 2)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.click();
-    URL.revokeObjectURL(url);
-  }
-
-  async function handleExportWorkspace() {
-    setIsExporting(true);
-
-    try {
-      const workspaceExport = await getWorkspaceExport();
-
-      downloadJsonFile(
-        `rungset-workspace-${new Date().toISOString().slice(0, 10)}.json`,
-        workspaceExport,
-      );
-
-      setAlert({
-        show: true,
-        title: 'Export ready',
-        message: 'Your workspace JSON has been downloaded.',
-        type: 'success',
-      });
-    } catch (error) {
-      console.error('Error exporting workspace:', error);
-      setAlert({
-        show: true,
-        title: 'Export failed',
-        message: 'The workspace export could not be completed.',
-        type: 'error',
-      });
-    } finally {
-      setIsExporting(false);
-    }
-  }
-
-  async function handleEnableNotifications() {
-    const permission = await requestPermission();
-    setNotificationPermission(permission);
-  }
-
-  async function handleCacheWorkspace() {
-    setIsCaching(true);
-
-    try {
-      await cacheAppPages();
-      writePwaCacheReady(true);
-      setPwaCacheReady(true);
-      setAlert({
-        show: true,
-        title: 'Offline cache ready',
-        message: 'The app pages were cached for offline use.',
-        type: 'success',
-      });
-    } catch (error) {
-      console.error('Error caching app pages:', error);
-      setAlert({
-        show: true,
-        title: 'Caching failed',
-        message: 'The app could not finish preparing offline pages.',
-        type: 'error',
-      });
-    } finally {
-      setIsCaching(false);
-    }
-  }
-
-  async function handleClearLocalCache() {
-    if (!session?.user?.id) {
-      return;
-    }
-
-    setIsClearingCache(true);
-
-    try {
-      clearUserCache(session.user.id);
-      writePwaCacheReady(false);
-
-      if ('caches' in window) {
-        const cacheKeys = await caches.keys();
-        await Promise.all(cacheKeys.map((cacheKey) => caches.delete(cacheKey)));
-      }
-
-      setPwaCacheReady(false);
-      await loadWorkspaceCounts();
-      setAlert({
-        show: true,
-        title: 'Local cache cleared',
-        message: 'Cached app data was removed. The next refresh will fetch fresh data.',
-        type: 'success',
-      });
-    } catch (error) {
-      console.error('Error clearing local cache:', error);
-      setAlert({
-        show: true,
-        title: 'Clear cache failed',
-        message: 'The local cache could not be cleared.',
-        type: 'error',
-      });
-    } finally {
-      setIsClearingCache(false);
-    }
-  }
-
-  async function resetWorkspaceData() {
-    setIsResettingData(true);
-
-    try {
-      const [goals, milestones, notes, todos, checkIns] = await Promise.all([
-        getGoals(),
-        getMilestones(),
-        getNotes(),
-        getTodos(),
-        getCheckIns(),
-      ]);
-
-      for (const milestone of milestones) {
-        await deleteMilestone(milestone.id);
-      }
-
-      for (const note of notes) {
-        await deleteNote(note.id);
-      }
-
-      for (const todo of todos) {
-        await deleteTodo(todo.id);
-      }
-
-      for (const checkIn of checkIns) {
-        await deleteCheckIn(checkIn.id);
-      }
-
-      for (const goal of goals) {
-        await deleteGoal(goal.id);
-      }
-
-      await loadWorkspaceCounts();
-      setAlert({
-        show: true,
-        title: 'Workspace reset',
-        message: 'All goals, milestones, notes, tasks, and check-ins were deleted.',
-        type: 'success',
-      });
-    } catch (error) {
-      console.error('Error resetting workspace:', error);
-      setAlert({
-        show: true,
-        title: 'Reset failed',
-        message: 'The workspace data could not be fully deleted.',
-        type: 'error',
-      });
-    } finally {
-      setIsResettingData(false);
-    }
-  }
-
-  async function handleSignOut() {
-    try {
-      sessionStorage.setItem('goalgenius-logged-out', 'true');
-      if (session?.user?.id) {
-        clearUserCache(session.user.id);
-      }
-      await clearOfflineCaches();
-      const response = await signOut();
-      await clearOfflineCaches();
-      if (response) {
-        window.location.replace('/');
-      }
-    } catch (error) {
-      console.error('Error signing out:', error);
-    }
-  }
-
-  const notificationStatusLabel =
-    notificationPermission === 'unsupported'
-      ? 'Unsupported'
-      : notificationPermission === 'granted'
-        ? 'Enabled'
-        : notificationPermission === 'denied'
-          ? 'Blocked'
-          : 'Not enabled';
+  const settings = useSettingsController();
 
   return (
     <AppPage>
@@ -415,304 +19,60 @@ export default function SettingsPage() {
           <p className="page-description">Manage your Rungset preferences.</p>
         </div>
         <div className="flex flex-wrap gap-2" aria-label="Workspace status">
-          <span className={`app-pill ${isOnline ? 'app-pill-success' : 'app-pill-warning'}`}>{isOnline ? 'Online' : 'Offline'}</span>
-          <span className="app-pill app-pill-blue">{notificationStatusLabel} notifications</span>
-          <span className={`app-pill ${pwaCacheReady ? 'app-pill-success' : 'app-pill-warning'}`}>{pwaCacheReady ? 'Offline cache ready' : 'Offline cache not ready'}</span>
+          <span className={`app-pill ${settings.isOnline ? 'app-pill-success' : 'app-pill-warning'}`}>
+            {settings.isOnline ? 'Online' : 'Offline'}
+          </span>
+          <span className="app-pill app-pill-blue">
+            {settings.notificationStatusLabel} notifications
+          </span>
+          <span className={`app-pill ${settings.pwaCacheReady ? 'app-pill-success' : 'app-pill-warning'}`}>
+            {settings.pwaCacheReady ? 'Offline cache ready' : 'Offline cache not ready'}
+          </span>
         </div>
       </header>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-        <AppPanel className="p-6">
-          <div className="mb-6 flex items-center gap-3">
-            <div className="icon-chip h-12 w-12 rounded-[18px]">
-              <UserRound className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold text-white">Account</h2>
-              <p className="text-sm text-[var(--text-secondary)]">
-                Signed-in identity and account access.
-              </p>
-            </div>
-          </div>
-
-          <div className="rounded-[22px] border border-white/10 bg-[rgba(8,17,30,0.42)] p-5">
-            <div className="flex items-center gap-4">
-              <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-[22px] border border-white/10 bg-[rgba(93,166,255,0.12)]">
-                {session?.user?.image ? (
-                  <Image
-                    src={session.user.image}
-                    alt="User avatar"
-                    width={64}
-                    height={64}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <span className="text-lg font-bold text-white">
-                    {(session?.user?.name ?? 'GG')
-                      .split(' ')
-                      .filter(Boolean)
-                      .slice(0, 2)
-                      .map((part) => part[0])
-                      .join('')
-                      .toUpperCase()}
-                  </span>
-                )}
-              </div>
-
-              <div className="min-w-0">
-                <p className="truncate text-lg font-semibold text-white">
-                  {session?.user?.name || 'Guest User'}
-                </p>
-                <p className="truncate text-sm text-[var(--text-secondary)]">
-                  {session?.user?.email || 'No email available'}
-                </p>
-                <p className="mt-1 break-all text-xs font-medium uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                  User ID: {session?.user?.id || 'Unavailable'}
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-5 flex flex-wrap gap-3">
-              <button type="button" className="app-button-secondary" onClick={handleSignOut}>
-                <LogOut className="h-4 w-4" />
-                Sign out
-              </button>
-            </div>
-          </div>
-        </AppPanel>
-
-        <AppPanel className="p-6">
-          <div className="mb-6 flex items-center gap-3">
-            <div className="icon-chip h-12 w-12 rounded-[18px]">
-              <LayoutPanelLeft className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold text-white">Workspace behavior</h2>
-              <p className="text-sm text-[var(--text-secondary)]">
-                Preferences that immediately change how the app behaves.
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <ToggleRow
-              checked={sidebarCollapsed}
-              label="Keep the sidebar collapsed by default"
-              description="Useful if you prefer a tighter desktop layout when the app loads."
-              onChange={(checked) => {
-                setSidebarCollapsed(checked);
-                writeSidebarCollapsed(checked);
-              }}
-            />
-
-            <ToggleRow
-              checked={settings.showCompletedTodosByDefault}
-                  label="Show completed tasks by default"
-                  description="Applies to the tasks page without needing to toggle the filter each time."
-              onChange={(checked) =>
-                updateSettings({ showCompletedTodosByDefault: checked })
-              }
-            />
-
-            <ToggleRow
-              checked={settings.enableInAppNotifications}
-              label="Enable in-app toast notifications"
-              description="Controls the notification toasts that appear inside Rungset."
-              onChange={(checked) =>
-                updateSettings({ enableInAppNotifications: checked })
-              }
-            />
-
-            <div className="rounded-[20px] border border-white/10 bg-[rgba(8,17,30,0.42)] px-4 py-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-white">
-                    Default priority for new tasks
-                  </p>
-                  <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
-                    Preselect the priority that should appear when you create a new task.
-                  </p>
-                </div>
-
-                <div className="w-full shrink-0 sm:w-40">
-                  <select
-                    value={settings.defaultTodoPriority}
-                    onChange={(event) =>
-                      updateSettings({
-                        defaultTodoPriority: event.target.value as Todo['priority'],
-                      })
-                    }
-                    className="app-select"
-                  >
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-        </AppPanel>
+        <AccountSettingsSection
+          user={settings.sessionUser}
+          onSignOut={settings.handleSignOut}
+        />
+        <WorkspaceBehaviorSection
+          settings={settings.settings}
+          sidebarCollapsed={settings.sidebarCollapsed}
+          onSidebarCollapsedChange={settings.handleSidebarCollapsedChange}
+          onSettingsChange={settings.updateSettings}
+        />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <AppPanel className="p-6">
-          <div className="mb-6 flex items-center gap-3">
-            <div className="icon-chip h-12 w-12 rounded-[18px]">
-              <Bell className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold text-white">Notifications & offline</h2>
-              <p className="text-sm text-[var(--text-secondary)]">
-                Browser permission and offline readiness for the app shell.
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div className="rounded-[20px] border border-white/10 bg-[rgba(8,17,30,0.42)] px-4 py-4">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-white">Desktop notifications</p>
-                  <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                    Current permission: {notificationStatusLabel}
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleEnableNotifications}
-                  disabled={
-                    notificationPermission === 'granted' ||
-                    notificationPermission === 'unsupported'
-                  }
-                  className="app-button disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <Bell className="h-4 w-4" />
-                  Enable
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-[20px] border border-white/10 bg-[rgba(8,17,30,0.42)] px-4 py-4">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-white">Offline cache</p>
-                  <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                    {pwaCacheReady
-                      ? 'Core pages have been cached for offline access.'
-                      : 'Prepare the app shell so the core pages are available offline.'}
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleCacheWorkspace}
-                  disabled={isCaching}
-                  className="app-button disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isCaching ? <LoadingSpinner size="small" /> : <CloudDownload className="h-4 w-4" />}
-                  Cache now
-                </button>
-              </div>
-            </div>
-          </div>
-        </AppPanel>
-
-        <AppPanel className="p-6">
-          <div className="mb-6 flex items-center gap-3">
-            <div className="icon-chip h-12 w-12 rounded-[18px]">
-              <Database className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold text-white">Workspace data</h2>
-              <p className="text-sm text-[var(--text-secondary)]">
-                Export, clear local caches, or reset all tracked items.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-x-6 md:grid-cols-5">
-            <MetricCard label="Goals" value={counts.goals} />
-            <MetricCard label="Milestones" value={counts.milestones} />
-            <MetricCard label="Notes" value={counts.notes} />
-                    <MetricCard label="Tasks" value={counts.todos} />
-            <MetricCard label="Check-ins" value={counts.checkIns} />
-          </div>
-
-          <div className="mt-6 border-t border-[var(--border-subtle)] pt-4">
-            <p className="text-sm font-semibold text-white">Total tracked items</p>
-            <p className="mt-2 text-4xl font-bold tracking-[-0.05em] text-white">
-              {totalItems}
-            </p>
-          </div>
-
-          <div className="mt-6 grid gap-3 md:grid-cols-2">
-            <button
-              type="button"
-              onClick={handleExportWorkspace}
-              disabled={isExporting}
-              className="app-button disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isExporting ? <LoadingSpinner size="small" /> : <Download className="h-4 w-4" />}
-              Export JSON
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                setAlert({
-                  show: true,
-                  title: 'Clear local cache?',
-                  message:
-                    'This removes cached workspace data and offline page caches on this device only.',
-                  type: 'warning',
-                  isConfirmation: true,
-                  onConfirm: () => {
-                    void handleClearLocalCache();
-                  },
-                })
-              }
-              disabled={isClearingCache}
-              className="app-button-secondary disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isClearingCache ? <LoadingSpinner size="small" /> : <ShieldCheck className="h-4 w-4" />}
-              Clear local cache
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                setAlert({
-                  show: true,
-                  title: 'Delete all workspace data?',
-                  message:
-                    'This will permanently remove all goals, milestones, notes, tasks, and check-ins for your account.',
-                  type: 'warning',
-                  isConfirmation: true,
-                  onConfirm: () => {
-                    void resetWorkspaceData();
-                  },
-                })
-              }
-              disabled={isResettingData}
-              className="app-button-danger md:col-span-2 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isResettingData ? <LoadingSpinner size="small" /> : <Trash2 className="h-4 w-4" />}
-              Reset workspace
-            </button>
-          </div>
-        </AppPanel>
+        <NotificationsOfflineSection
+          notificationPermission={settings.notificationPermission}
+          notificationStatusLabel={settings.notificationStatusLabel}
+          pwaCacheReady={settings.pwaCacheReady}
+          isCaching={settings.isCaching}
+          onEnableNotifications={settings.handleEnableNotifications}
+          onCacheWorkspace={settings.handleCacheWorkspace}
+        />
+        <WorkspaceDataSection
+          counts={settings.counts}
+          totalItems={settings.totalItems}
+          isExporting={settings.isExporting}
+          isClearingCache={settings.isClearingCache}
+          isResettingData={settings.isResettingData}
+          onExportWorkspace={settings.handleExportWorkspace}
+          onRequestClearLocalCache={settings.onRequestClearLocalCache}
+          onRequestWorkspaceReset={settings.onRequestWorkspaceReset}
+        />
       </div>
 
-      {alert.show ? (
+      {settings.alert.show ? (
         <AlertModal
-          title={alert.title}
-          message={alert.message}
-          type={alert.type}
-          onClose={() => setAlert((current) => ({ ...current, show: false }))}
-          isConfirmation={alert.isConfirmation}
-          onConfirm={alert.onConfirm}
+          title={settings.alert.title}
+          message={settings.alert.message}
+          type={settings.alert.type}
+          onClose={settings.closeAlert}
+          isConfirmation={settings.alert.isConfirmation}
+          onConfirm={settings.alert.onConfirm}
         />
       ) : null}
     </AppPage>
