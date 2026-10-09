@@ -1,376 +1,429 @@
 'use client';
 
-import { useState } from 'react';
-import Link from 'next/link';
-import Image from 'next/image';
-import { signOut } from '@/lib/auth/auth-client';
+import { useCallback, useEffect, useState } from 'react';
+import { AppPage, AppPageHeader, AppPanel } from '@/components/app/shared/AppPage';
 
-export default function AdminDashboard({ user }: { user: { name?: string | null; image?: string | null } | null }) {
-  const [activeTab, setActiveTab] = useState('overview');
+type AdminTab = 'overview' | 'users' | 'email' | 'logs';
 
-  // Mock data for demonstration
+interface Overview {
+  users: number;
+  newUsers30d: number;
+  activeUsers30d: number;
+  goals: number;
+  tasks: number;
+  checkIns: number;
+  subscribers: number;
+}
+
+interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  emailVerified: boolean;
+  createdAt: string | null;
+  lastLoginAt: string | null;
+  marketingEmailOptIn: boolean;
+  marketingEmailPending: boolean;
+  marketingEmailUnsubscribedAt: string | null;
+}
+
+interface RuntimeLog {
+  id: string;
+  timestamp: number | null;
+  message: string;
+  service: string;
+  statusCode: number | null;
+  trigger: string | null;
+  rayId: string | null;
+}
+
+const tabs: { id: AdminTab; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'users', label: 'Users' },
+  { id: 'email', label: 'Email' },
+  { id: 'logs', label: 'Logs' },
+];
+
+export default function AdminDashboard({ adminName }: { adminName: string }) {
+  const [activeTab, setActiveTab] = useState<AdminTab>('overview');
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [overviewError, setOverviewError] = useState<string | null>(null);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [userTotal, setUserTotal] = useState(0);
+  const [userPage, setUserPage] = useState(1);
+  const [userSearch, setUserSearch] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState<string | null>(null);
+  const [logs, setLogs] = useState<RuntimeLog[]>([]);
+  const [logsConfigured, setLogsConfigured] = useState<boolean | null>(null);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsError, setLogsError] = useState<string | null>(null);
+  const [subject, setSubject] = useState('');
+  const [message, setMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sendStatus, setSendStatus] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  const loadOverview = useCallback(async () => {
+    setOverviewError(null);
+    try {
+      const response = await fetch('/api/admin/overview', { cache: 'no-store' });
+      const result = await response.json() as Overview & { error?: string };
+      if (!response.ok) throw new Error(result.error ?? 'Could not load dashboard stats.');
+      setOverview(result);
+    } catch (error) {
+      setOverviewError(error instanceof Error ? error.message : 'Could not load dashboard stats.');
+    }
+  }, []);
+
+  const loadUsers = useCallback(async () => {
+    setUsersLoading(true);
+    setUsersError(null);
+    try {
+      const params = new URLSearchParams({ page: String(userPage) });
+      if (appliedSearch) params.set('search', appliedSearch);
+      const response = await fetch(`/api/admin/users?${params}`, { cache: 'no-store' });
+      const result = await response.json() as { users?: AdminUser[]; total?: number; error?: string };
+      if (!response.ok) throw new Error(result.error ?? 'Could not load users.');
+      setUsers(result.users ?? []);
+      setUserTotal(result.total ?? 0);
+    } catch (error) {
+      setUsersError(error instanceof Error ? error.message : 'Could not load users.');
+    } finally {
+      setUsersLoading(false);
+    }
+  }, [appliedSearch, userPage]);
+
+  const loadLogs = useCallback(async () => {
+    setLogsLoading(true);
+    setLogsError(null);
+    try {
+      const response = await fetch('/api/admin/logs', { cache: 'no-store' });
+      const result = await response.json() as { configured?: boolean; logs?: RuntimeLog[]; error?: string };
+      if (!response.ok) throw new Error(result.error ?? 'Could not load Cloudflare logs.');
+      setLogsConfigured(result.configured ?? false);
+      setLogs(result.logs ?? []);
+    } catch (error) {
+      setLogsError(error instanceof Error ? error.message : 'Could not load Cloudflare logs.');
+    } finally {
+      setLogsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadOverview();
+  }, [loadOverview]);
+
+  useEffect(() => {
+    if (activeTab === 'users') void loadUsers();
+    if (activeTab === 'logs') void loadLogs();
+  }, [activeTab, loadLogs, loadUsers]);
+
+  async function submitBroadcast(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (sending || !overview?.subscribers) return;
+    const confirmed = window.confirm(`Send this email to ${overview.subscribers} confirmed Rungset subscribers?`);
+    if (!confirmed) return;
+
+    setSending(true);
+    setSendStatus(null);
+    setSendError(null);
+    try {
+      const response = await fetch('/api/admin/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject, message }),
+      });
+      const result = await response.json() as { recipientCount?: number; sent?: number; failed?: number; error?: string };
+      if (!response.ok) throw new Error(result.error ?? 'Could not send the email.');
+      setSendStatus(`Sent to ${result.sent} of ${result.recipientCount} subscribers${result.failed ? `; ${result.failed} failed` : ''}.`);
+      if (!result.failed) {
+        setSubject('');
+        setMessage('');
+      }
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'Could not send the email.');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <AppPage>
+      <AppPageHeader
+        eyebrow="Administration"
+        title="Rungset admin"
+        description={`Private app operations for ${adminName}.`}
+        meta={<span className="app-pill app-pill-blue">Server-authorized</span>}
+      />
+
+      <nav className="flex flex-wrap gap-2 border-b border-[var(--border-subtle)] pb-4" aria-label="Admin sections" role="tablist">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            id={`admin-tab-${tab.id}`}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            aria-controls={`admin-panel-${tab.id}`}
+            onClick={() => setActiveTab(tab.id)}
+            className={activeTab === tab.id ? 'app-button' : 'app-button-secondary'}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
+      <section id={`admin-panel-${activeTab}`} role="tabpanel" aria-labelledby={`admin-tab-${activeTab}`} className="space-y-6">
+        {activeTab === 'overview' ? (
+          <OverviewPanel overview={overview} error={overviewError} onRefresh={() => void loadOverview()} />
+        ) : null}
+        {activeTab === 'users' ? (
+          <UsersPanel
+            users={users}
+            total={userTotal}
+            page={userPage}
+            pageSize={25}
+            search={userSearch}
+            loading={usersLoading}
+            error={usersError}
+            onSearchChange={setUserSearch}
+            onSearch={() => { setUserPage(1); setAppliedSearch(userSearch.trim()); }}
+            onPageChange={setUserPage}
+            onRefresh={() => void loadUsers()}
+          />
+        ) : null}
+        {activeTab === 'email' ? (
+          <EmailPanel
+            subscriberCount={overview?.subscribers ?? 0}
+            subject={subject}
+            message={message}
+            sending={sending}
+            status={sendStatus}
+            error={sendError}
+            onSubjectChange={setSubject}
+            onMessageChange={setMessage}
+            onSubmit={submitBroadcast}
+          />
+        ) : null}
+        {activeTab === 'logs' ? (
+          <LogsPanel logs={logs} configured={logsConfigured} loading={logsLoading} error={logsError} onRefresh={() => void loadLogs()} />
+        ) : null}
+      </section>
+    </AppPage>
+  );
+}
+
+function OverviewPanel({ overview, error, onRefresh }: { overview: Overview | null; error: string | null; onRefresh: () => void }) {
   const stats = [
-    { name: 'Total Users', value: '356' },
-    { name: 'Active Practitioners', value: '48' },
-    { name: 'Active Clients', value: '302' },
-    { name: 'New Signups (30d)', value: '87' }
-  ];
-
-  const practitioners = [
-    { id: 1, name: 'Dr. Sarah Miller', specialty: 'Nutrition', clients: 38, status: 'Active' },
-    { id: 2, name: 'Mark Johnson', specialty: 'Health Coaching', clients: 24, status: 'Active' },
-    { id: 3, name: 'Emily Williams', specialty: 'Dietetics', clients: 18, status: 'Pending' }
+    { label: 'Registered users', value: overview?.users },
+    { label: 'New users · 30 days', value: overview?.newUsers30d },
+    { label: 'Signed in · 30 days', value: overview?.activeUsers30d },
+    { label: 'Goals', value: overview?.goals },
+    { label: 'Tasks', value: overview?.tasks },
+    { label: 'Check-ins', value: overview?.checkIns },
+    { label: 'Confirmed email subscribers', value: overview?.subscribers },
   ];
 
   return (
-    <div className="flex h-screen bg-gray-50">
-      {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-gray-200 hidden md:block">
-        <div className="p-4 border-b">
-          <Link href="/" prefetch={false} className="flex items-center">
-            <span className="text-xl font-semibold text-blue-600">Rungset</span>
-          </Link>
-        </div>
-
-        <nav className="p-4 space-y-1">
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`w-full flex items-center px-4 py-2 text-sm rounded-lg ${activeTab === 'overview' ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-100'}`}
-          >
-            <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
-            </svg>
-            Overview
-          </button>
-
-          <button
-            onClick={() => setActiveTab('users')}
-            className={`w-full flex items-center px-4 py-2 text-sm rounded-lg ${activeTab === 'users' ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-100'}`}
-          >
-            <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
-            </svg>
-            Users
-          </button>
-
-          <button
-            onClick={() => setActiveTab('subscriptions')}
-            className={`w-full flex items-center px-4 py-2 text-sm rounded-lg ${activeTab === 'subscriptions' ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-100'}`}
-          >
-            <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
-            </svg>
-            Subscriptions
-          </button>
-
-          <button
-            onClick={() => setActiveTab('settings')}
-            className={`w-full flex items-center px-4 py-2 text-sm rounded-lg ${activeTab === 'settings' ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-100'}`}
-          >
-            <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-            </svg>
-            Settings
-          </button>
-        </nav>
-      </aside>
-
-      {/* Main content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top bar */}
-        <header className="bg-white border-b border-gray-200 p-4 flex justify-between items-center">
-          <button className="md:hidden text-gray-500">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path>
-            </svg>
-          </button>
-
-          <div className="relative">
-            <button className="flex items-center space-x-2 text-sm">
-              <div className="relative w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
-                {user?.image ? (
-                  <Image
-                    src={user.image}
-                    alt={user.name || 'Admin'}
-                    fill
-                    className="rounded-full"
-                  />
-                ) : (
-                  <span className="text-gray-700">{user?.name?.charAt(0)}</span>
-                )}
-              </div>
-              <span className="text-gray-700 font-medium hidden md:inline-block">{user?.name}</span>
-              <button
-                onClick={() => signOut()}
-                className="text-sm text-gray-500 hover:text-gray-700"
-              >
-                Sign out
-              </button>
-            </button>
-          </div>
-        </header>
-
-        {/* Main content container */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          {activeTab === 'overview' && (
-            <div className="space-y-6">
-              <div className="flex justify-between items-center">
-                <h1 className="text-2xl font-bold text-gray-900">Dashboard Overview</h1>
-                <span className="bg-blue-100 text-blue-800 text-xs font-medium py-1 px-2 rounded-full">Admin Portal</span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {stats.map((stat) => (
-                  <div key={stat.name} className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-                    <p className="text-sm font-medium text-gray-500">{stat.name}</p>
-                    <p className="mt-2 text-3xl font-semibold text-gray-900">{stat.value}</p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-                  <h2 className="text-lg font-medium text-gray-900 mb-4">Recent Practitioners</h2>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Name
-                          </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Specialty
-                          </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Clients
-                          </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Status
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {practitioners.map((person) => (
-                          <tr key={person.id}>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <div className="text-sm font-medium text-gray-900">{person.name}</div>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <div className="text-sm text-gray-500">{person.specialty}</div>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {person.clients}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                                person.status === 'Active'
-                                  ? 'bg-green-100 text-green-800'
-                                  : 'bg-yellow-100 text-yellow-800'
-                              }`}>
-                                {person.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-                  <h2 className="text-lg font-medium text-gray-900 mb-4">Platform Activity</h2>
-                  <div className="h-64 flex items-center justify-center bg-gray-50 rounded-lg border border-gray-100">
-                    <p className="text-gray-400">Activity chart will appear here</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'users' && (
-            <div className="space-y-6">
-              <div className="flex justify-between items-center">
-                <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
-                <button className="bg-blue-600 text-white px-4 py-2 text-sm font-medium rounded-lg hover:bg-blue-700">
-                  Add user
-                </button>
-              </div>
-
-              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-                <div className="flex justify-between mb-6">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder="Search users..."
-                      className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                    <div className="absolute left-3 top-2.5 text-gray-400">
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                      </svg>
-                    </div>
-                  </div>
-
-                  <div className="flex space-x-2">
-                    <select className="border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                      <option>All roles</option>
-                      <option>Admin</option>
-                      <option>Practitioner</option>
-                      <option>Client</option>
-                    </select>
-
-                    <select className="border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                      <option>All status</option>
-                      <option>Active</option>
-                      <option>Inactive</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="text-center py-20 border-2 border-dashed border-gray-200 rounded-lg">
-                  <p className="text-gray-500">User table will be displayed here</p>
-                  <p className="text-gray-400 text-sm mt-2">With pagination and filtering</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'subscriptions' && (
-            <div className="space-y-6">
-              <h1 className="text-2xl font-bold text-gray-900">Subscription Management</h1>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-                  <h2 className="font-semibold text-lg mb-2">Free Plan</h2>
-                  <div className="mb-4">
-                    <span className="text-3xl font-bold">$0</span>
-                    <span className="text-gray-500">/month</span>
-                  </div>
-                  <ul className="mb-6 space-y-2">
-                    <li className="flex items-center">
-                      <svg className="w-4 h-4 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                      </svg>
-                      <span className="text-sm">5 clients max</span>
-                    </li>
-                    <li className="flex items-center">
-                      <svg className="w-4 h-4 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                      </svg>
-                      <span className="text-sm">Basic features</span>
-                    </li>
-                  </ul>
-                  <button className="w-full py-2 bg-gray-100 text-gray-700 rounded-lg font-medium">Current Plan</button>
-                </div>
-
-                <div className="bg-white p-6 rounded-lg shadow-sm border-2 border-blue-500">
-                  <h2 className="font-semibold text-lg mb-2">Pro Plan</h2>
-                  <div className="mb-4">
-                    <span className="text-3xl font-bold">$29</span>
-                    <span className="text-gray-500">/month</span>
-                  </div>
-                  <ul className="mb-6 space-y-2">
-                    <li className="flex items-center">
-                      <svg className="w-4 h-4 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                      </svg>
-                      <span className="text-sm">50 clients max</span>
-                    </li>
-                    <li className="flex items-center">
-                      <svg className="w-4 h-4 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                      </svg>
-                      <span className="text-sm">All features</span>
-                    </li>
-                    <li className="flex items-center">
-                      <svg className="w-4 h-4 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                      </svg>
-                      <span className="text-sm">Priority support</span>
-                    </li>
-                  </ul>
-                  <button className="w-full py-2 bg-blue-600 text-white rounded-lg font-medium">Most Popular</button>
-                </div>
-
-                <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-                  <h2 className="font-semibold text-lg mb-2">Enterprise</h2>
-                  <div className="mb-4">
-                    <span className="text-3xl font-bold">$99</span>
-                    <span className="text-gray-500">/month</span>
-                  </div>
-                  <ul className="mb-6 space-y-2">
-                    <li className="flex items-center">
-                      <svg className="w-4 h-4 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                      </svg>
-                      <span className="text-sm">Unlimited clients</span>
-                    </li>
-                    <li className="flex items-center">
-                      <svg className="w-4 h-4 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                      </svg>
-                      <span className="text-sm">All features</span>
-                    </li>
-                    <li className="flex items-center">
-                      <svg className="w-4 h-4 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                      </svg>
-                      <span className="text-sm">Dedicated support</span>
-                    </li>
-                  </ul>
-                  <button className="w-full py-2 border border-blue-600 text-blue-600 rounded-lg font-medium">Contact Sales</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'settings' && (
-            <div className="space-y-6">
-              <h1 className="text-2xl font-bold text-gray-900">Platform Settings</h1>
-
-              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-                <div className="space-y-4">
-                  <h2 className="text-lg font-medium border-b pb-4">General Settings</h2>
-
-                  <div className="flex justify-between items-center py-3">
-                    <div>
-                      <h3 className="font-medium">Enable new user registration</h3>
-                      <p className="text-sm text-gray-500">Allow new users to register on the platform</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" checked className="sr-only peer" />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
-
-                  <div className="flex justify-between items-center py-3 border-t">
-                    <div>
-                      <h3 className="font-medium">Require email verification</h3>
-                      <p className="text-sm text-gray-500">Force users to verify their email before accessing</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" checked className="sr-only peer" />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
-
-                  <div className="flex justify-between items-center py-3 border-t">
-                    <div>
-                      <h3 className="font-medium">Maintenance mode</h3>
-                      <p className="text-sm text-gray-500">Put the platform in maintenance mode</p>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" className="sr-only peer" />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </main>
+    <div className="space-y-6">
+      <SectionHeading title="At a glance" action={<button className="app-button-secondary app-button-sm" type="button" onClick={onRefresh}>Refresh</button>} />
+      {error ? <ErrorNotice>{error}</ErrorNotice> : null}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {stats.map((stat) => (
+          <AppPanel key={stat.label} className="p-5">
+            <p className="text-sm text-[var(--text-secondary)]">{stat.label}</p>
+            <p className="mt-3 text-3xl font-semibold tracking-tight text-white">{stat.value?.toLocaleString() ?? '—'}</p>
+          </AppPanel>
+        ))}
       </div>
+      <AppPanel className="p-5 text-sm leading-6 text-[var(--text-secondary)]">
+        Activity totals come from the app database. Runtime logs are available in the Logs section; no third-party product analytics are added.
+      </AppPanel>
     </div>
   );
+}
+
+function UsersPanel({
+  users,
+  total,
+  page,
+  pageSize,
+  search,
+  loading,
+  error,
+  onSearchChange,
+  onSearch,
+  onPageChange,
+  onRefresh,
+}: {
+  users: AdminUser[];
+  total: number;
+  page: number;
+  pageSize: number;
+  search: string;
+  loading: boolean;
+  error: string | null;
+  onSearchChange: (value: string) => void;
+  onSearch: () => void;
+  onPageChange: (page: number) => void;
+  onRefresh: () => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  return (
+    <AppPanel className="p-5 sm:p-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Users</h2>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">Names, email addresses, signup and last-login dates.</p>
+        </div>
+        <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); onSearch(); }}>
+          <label className="sr-only" htmlFor="admin-user-search">Search users</label>
+          <input id="admin-user-search" className="app-field min-w-0 sm:w-64" type="search" maxLength={80} placeholder="Name or email" value={search} onChange={(event) => onSearchChange(event.target.value)} />
+          <button className="app-button-secondary" type="submit">Search</button>
+        </form>
+      </div>
+      <div className="mt-5 flex items-center justify-between text-sm text-[var(--text-secondary)]">
+        <span>{total.toLocaleString()} users</span>
+        <button type="button" className="app-button-ghost app-button-sm" onClick={onRefresh}>Refresh</button>
+      </div>
+      {error ? <ErrorNotice className="mt-4">{error}</ErrorNotice> : null}
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+          <thead>
+            <tr className="border-b border-[var(--border-default)] text-xs uppercase tracking-wide text-[var(--text-muted)]">
+              <th className="px-3 py-3 font-medium">Name</th>
+              <th className="px-3 py-3 font-medium">Email</th>
+              <th className="px-3 py-3 font-medium">Joined</th>
+              <th className="px-3 py-3 font-medium">Last login</th>
+              <th className="px-3 py-3 font-medium">Email updates</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? <tr><td className="px-3 py-8 text-[var(--text-secondary)]" colSpan={5}>Loading users…</td></tr> : null}
+            {!loading && users.length === 0 ? <tr><td className="px-3 py-8 text-[var(--text-secondary)]" colSpan={5}>No users found.</td></tr> : null}
+            {!loading ? users.map((account) => (
+              <tr key={account.id} className="border-b border-[var(--border-subtle)] last:border-0">
+                <td className="px-3 py-3 font-medium text-white">{account.name}</td>
+                <td className="px-3 py-3 text-[var(--text-secondary)]">
+                  <span>{account.email}</span>
+                  {!account.emailVerified ? <span className="ml-2 text-xs text-[var(--warning)]">Unverified</span> : null}
+                </td>
+                <td className="px-3 py-3 text-[var(--text-secondary)]">{formatDate(account.createdAt)}</td>
+                <td className="px-3 py-3 text-[var(--text-secondary)]">{formatDate(account.lastLoginAt)}</td>
+                <td className="px-3 py-3 text-[var(--text-secondary)]">{emailStatus(account)}</td>
+              </tr>
+            )) : null}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-5 flex items-center justify-between gap-3">
+        <button className="app-button-secondary app-button-sm" type="button" disabled={page <= 1 || loading} onClick={() => onPageChange(page - 1)}>Previous</button>
+        <span className="text-sm text-[var(--text-secondary)]">Page {page} of {totalPages}</span>
+        <button className="app-button-secondary app-button-sm" type="button" disabled={page >= totalPages || loading} onClick={() => onPageChange(page + 1)}>Next</button>
+      </div>
+    </AppPanel>
+  );
+}
+
+function EmailPanel({
+  subscriberCount,
+  subject,
+  message,
+  sending,
+  status,
+  error,
+  onSubjectChange,
+  onMessageChange,
+  onSubmit,
+}: {
+  subscriberCount: number;
+  subject: string;
+  message: string;
+  sending: boolean;
+  status: string | null;
+  error: string | null;
+  onSubjectChange: (value: string) => void;
+  onMessageChange: (value: string) => void;
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <AppPanel className="max-w-3xl p-5 sm:p-6">
+      <h2 className="text-lg font-semibold text-white">Send an update</h2>
+      <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
+        Sends individually from hello@rungset.com to confirmed subscribers. Existing accounts are not subscribed by default; each email includes a one-click unsubscribe link. Campaigns are limited to 1,000 recipients until queued sending is added.
+      </p>
+      <p className="mt-4 app-pill app-pill-blue">{subscriberCount.toLocaleString()} confirmed subscriber{subscriberCount === 1 ? '' : 's'}</p>
+      <form className="mt-6 space-y-4" onSubmit={onSubmit}>
+        <div>
+          <label className="mb-2 block text-sm font-medium text-[var(--text-secondary)]" htmlFor="admin-email-subject">Subject</label>
+          <input id="admin-email-subject" className="app-field" value={subject} maxLength={120} required onChange={(event) => onSubjectChange(event.target.value)} />
+        </div>
+        <div>
+          <label className="mb-2 block text-sm font-medium text-[var(--text-secondary)]" htmlFor="admin-email-message">Message</label>
+          <textarea id="admin-email-message" className="app-field min-h-48 resize-y" value={message} maxLength={10_000} required onChange={(event) => onMessageChange(event.target.value)} />
+          <p className="mt-1 text-right text-xs text-[var(--text-muted)]">{message.length.toLocaleString()} / 10,000</p>
+        </div>
+        {status ? <p className="text-sm text-[var(--success)]" role="status">{status}</p> : null}
+        {error ? <ErrorNotice>{error}</ErrorNotice> : null}
+        <button className="app-button" type="submit" disabled={sending || subscriberCount === 0}>
+          {sending ? 'Sending…' : `Send to ${subscriberCount.toLocaleString()} subscribers`}
+        </button>
+      </form>
+    </AppPanel>
+  );
+}
+
+function LogsPanel({ logs, configured, loading, error, onRefresh }: { logs: RuntimeLog[]; configured: boolean | null; loading: boolean; error: string | null; onRefresh: () => void }) {
+  return (
+    <div className="space-y-4">
+      <SectionHeading title="Cloudflare Worker logs · last 24 hours" action={<button className="app-button-secondary app-button-sm" type="button" onClick={onRefresh} disabled={loading}>Refresh</button>} />
+      {configured === false ? (
+        <AppPanel className="p-5 text-sm leading-6 text-[var(--text-secondary)]">
+          Log access is not configured. Set the server secret <code>RUNGSET_OBSERVABILITY_API_TOKEN</code> to enable the log view. Cloudflare currently requires an account-scoped Workers Observability Write token for its query endpoint, even though this app only submits read queries; the credential stays on the server.
+        </AppPanel>
+      ) : null}
+      {error ? <ErrorNotice>{error}</ErrorNotice> : null}
+      {loading ? <AppPanel className="p-5 text-sm text-[var(--text-secondary)]">Loading Cloudflare logs…</AppPanel> : null}
+      {!loading && configured && logs.length === 0 ? <AppPanel className="p-5 text-sm text-[var(--text-secondary)]">No runtime events found for this period.</AppPanel> : null}
+      {logs.map((entry) => (
+        <AppPanel key={entry.id} className="overflow-hidden p-4 sm:p-5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
+            <time dateTime={entry.timestamp ? new Date(entry.timestamp).toISOString() : undefined}>{formatTimestamp(entry.timestamp)}</time>
+            <span>{entry.service}</span>
+            {entry.trigger ? <span>{entry.trigger}</span> : null}
+            {entry.statusCode ? <span>Status {entry.statusCode}</span> : null}
+            {entry.rayId ? <span className="font-mono">Ray {entry.rayId}</span> : null}
+          </div>
+          <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-[var(--text-primary)]">{entry.message}</pre>
+        </AppPanel>
+      ))}
+    </div>
+  );
+}
+
+function SectionHeading({ title, action }: { title: string; action?: React.ReactNode }) {
+  return <div className="flex items-center justify-between gap-4"><h2 className="text-lg font-semibold text-white">{title}</h2>{action}</div>;
+}
+
+function ErrorNotice({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return <p className={`rounded-[var(--radius-control)] border border-[var(--danger-soft)] bg-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--text-primary)] ${className}`} role="alert">{children}</p>;
+}
+
+function formatDate(value: string | null) {
+  if (!value) return 'Never';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date);
+}
+
+function formatTimestamp(value: number | null) {
+  if (!value) return 'Unknown time';
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(value));
+}
+
+function emailStatus(account: AdminUser) {
+  if (account.marketingEmailOptIn && !account.marketingEmailUnsubscribedAt) return 'Subscribed';
+  if (account.marketingEmailPending) return 'Confirmation pending';
+  return account.marketingEmailUnsubscribedAt ? 'Unsubscribed' : 'Not subscribed';
 }
