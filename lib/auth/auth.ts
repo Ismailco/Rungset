@@ -187,6 +187,19 @@ export const auth = betterAuth({
   },
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
+      if (
+        ctx.path.endsWith("/update-user") &&
+        typeof ctx.body === "object" &&
+        ctx.body !== null &&
+        !Array.isArray(ctx.body) &&
+        Object.hasOwn(ctx.body, "marketingEmailOptIn")
+      ) {
+        throw new APIError("BAD_REQUEST", {
+          code: "FIELD_NOT_ALLOWED",
+          message: "Update marketing email preferences through the account preferences settings.",
+        });
+      }
+
       const schema = ctx.path === "/sign-in/email"
         ? signInCredentialsSchema
         : ctx.path === "/sign-up/email"

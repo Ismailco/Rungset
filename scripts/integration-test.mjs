@@ -79,6 +79,13 @@ try {
 
   const defaultPreferences = await userA.expect('/api/account/email-preferences', 200);
   assert.deepEqual(defaultPreferences, { marketingEmailOptIn: false, pending: false, unsubscribed: false });
+  const genericConsentUpdate = await userA.request('/api/auth/update-user', {
+    method: 'POST',
+    body: { marketingEmailOptIn: true },
+  });
+  assert.equal(genericConsentUpdate.response.status, 400, JSON.stringify(genericConsentUpdate.body));
+  assert.deepEqual(await userA.expect('/api/account/email-preferences', 200), defaultPreferences);
+
   const concurrentOptOuts = await Promise.all([
     userA.request('/api/account/email-preferences', { method: 'PATCH', body: { marketingEmailOptIn: false } }),
     userA.request('/api/account/email-preferences', { method: 'PATCH', body: { marketingEmailOptIn: false } }),
