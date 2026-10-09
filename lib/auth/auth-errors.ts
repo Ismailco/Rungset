@@ -3,6 +3,7 @@ export type AuthMode = "signin" | "signup";
 type AuthErrorType =
   | "AUTHENTICATION_FAILED"
   | "ACCOUNT_CREATION_FAILED"
+  | "EMAIL_NOT_VERIFIED"
   | "INVALID_EMAIL"
   | "RATE_LIMITED"
   | "PROVIDER_UNAVAILABLE"
@@ -30,11 +31,6 @@ const AUTH_ERROR_MAPPINGS: AuthErrorMapping[] = [
     type: "ACCOUNT_CREATION_FAILED",
     message:
       "Unable to create your account. Please review your details and try again.",
-  },
-  {
-    pattern: "email not verified",
-    type: "AUTHENTICATION_FAILED",
-    message: "Invalid email or password. Please try again.",
   },
   {
     pattern: "invalid email",
@@ -85,6 +81,13 @@ export const getAuthError = (error: unknown, mode: AuthMode): AuthError => {
 
   if (status === 429 || /rate.?limit|too many requests/.test(`${code} ${errorMessage}`)) {
     return { type: "RATE_LIMITED", message: "Too many attempts. Wait a little and try again." };
+  }
+
+  if (/email.?not.?verified/.test(`${code} ${errorMessage}`) || errorMessage.includes("email not verified")) {
+    return {
+      type: "EMAIL_NOT_VERIFIED",
+      message: "Please verify your email address before signing in. Check your inbox or request a new link.",
+    };
   }
 
   if (/provider|oauth/.test(`${code} ${errorMessage}`)) {

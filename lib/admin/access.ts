@@ -1,17 +1,10 @@
 import "server-only";
 
-import { auth } from "@/lib/auth/auth";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-
-export async function getFreshSession(requestHeaders: Headers) {
-  return auth.api.getSession({
-    headers: requestHeaders,
-    query: { disableCookieCache: true },
-  });
-}
+import { getVerifiedSession } from "@/lib/server/authenticated-user";
 
 export async function getAdminAccess(requestHeaders: Headers) {
-  const session = await getFreshSession(requestHeaders);
+  const session = await getVerifiedSession(requestHeaders);
   const env = getCloudflareContext().env;
   const configuredEmails = (env as unknown as Record<string, unknown>).RUNGSET_ADMIN_EMAILS;
   const allowlist = typeof configuredEmails === "string"

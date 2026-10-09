@@ -32,14 +32,20 @@ export default function AppShell({
   }, [isPublicRoute, pathname]);
 
   useEffect(() => {
-    if (isPublicRoute || isPending || session || logoutRequested) return;
+    if (isPublicRoute || isPending || logoutRequested) return;
+
+    if (session && !session.user.emailVerified) {
+      window.location.replace('/auth/verify-email');
+      return;
+    }
+    if (session) return;
 
     window.location.replace(
       `/auth/signin?callbackUrl=${encodeURIComponent(pathname)}`,
     );
   }, [isPending, isPublicRoute, logoutRequested, pathname, session]);
 
-  if (!isPublicRoute && (isPending || !session || logoutRequested)) {
+  if (!isPublicRoute && (isPending || !session || !session.user.emailVerified || logoutRequested)) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[var(--bg-canvas)] p-6">
         <div className="text-sm text-[var(--text-secondary)]" role="status">

@@ -1,7 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
+import { markTestEmailVerified } from './helpers/auth';
 
 const TEST_PASSWORD = "Rungset-e2e-2026";
-const SIGN_UP_NOTICE = "If an account can be created with these details, you can now sign in.";
+const SIGN_UP_NOTICE = "If an account can be created with these details, a verification email has been sent. Verify your email before signing in.";
 
 async function completeSignUp(page: Page, name: string, email: string) {
   await page.getByLabel("Full Name").fill(name);
@@ -75,7 +76,7 @@ test("sign-up and sign-in links preserve the callback URL", async ({ page }) => 
   );
 });
 
-test("duplicate registration stays generic and valid sign-in works", async ({ page }) => {
+test("unverified users must verify before sign-in and can request a fresh link", async ({ page }) => {
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   const email = `auth-${suffix}@example.com`;
 
@@ -86,6 +87,7 @@ test("duplicate registration stays generic and valid sign-in works", async ({ pa
   expect(firstResponse.request().postDataJSON()).not.toHaveProperty("passwordConfirm");
   const firstBody = await firstResponse.json() as { token: string | null; user: Record<string, unknown> };
   expect(firstBody.token).toBeNull();
+  expect(firstBody.user.emailVerified).toBe(false);
   expect(firstBody.user.name).toBe("Original Account Name");
   expect(firstBody.user.email).toBe(email);
   await expect(page.getByRole("status")).toHaveText(SIGN_UP_NOTICE);
@@ -122,6 +124,18 @@ test("duplicate registration stays generic and valid sign-in works", async ({ pa
   expect(wrongPassword.status()).toBe(401);
   await expect(page.getByRole("alert").locator("p")).toHaveText(unknownMessage ?? "");
 
+  const unverifiedSignIn = await signIn(email, TEST_PASSWORD);
+  expect(unverifiedSignIn.status()).toBe(403);
+  await expect(page.getByRole("alert").locator("p")).toContainText("verify your email address");
+  const resendResponsePromise = page.waitForResponse((response) => (
+    response.url().includes("/api/auth/send-verification-email") && response.request().method() === "POST"
+  ));
+  await page.getByRole("button", { name: "Resend verification email" }).click();
+  const resendResponse = await resendResponsePromise;
+  expect(resendResponse.status()).toBe(200);
+  await expect(page.getByRole("status")).toContainText("a fresh link has been sent");
+
+  markTestEmailVerified(email);
   await signIn(email, TEST_PASSWORD);
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 });
 });

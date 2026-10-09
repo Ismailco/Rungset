@@ -1,5 +1,11 @@
 import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { defineConfig } from '@playwright/test';
+
+const e2ePersistDir = process.env.RUNGSET_E2E_PERSIST_DIR ?? join(tmpdir(), `rungset-e2e-${process.pid}`);
+process.env.RUNGSET_E2E_PERSIST_DIR = e2ePersistDir;
+process.env.WRANGLER_LOG_PATH ??= join(e2ePersistDir, 'wrangler.log');
 
 const browserExecutable = process.env.BROWSER_EXECUTABLE_PATH ?? [
   '/opt/google/chrome/chrome',

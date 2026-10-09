@@ -6,7 +6,7 @@ import { spawn, spawnSync } from 'node:child_process';
 const root = process.cwd();
 const port = 8788;
 const baseUrl = `http://localhost:${port}`;
-const persistDir = await mkdtemp(join(tmpdir(), 'rungset-e2e-'));
+const persistDir = process.env.RUNGSET_E2E_PERSIST_DIR ?? await mkdtemp(join(tmpdir(), 'rungset-e2e-'));
 
 const migration = spawnSync('pnpm', [
   'exec', 'wrangler', 'd1', 'migrations', 'apply', 'goalgenius_db',
