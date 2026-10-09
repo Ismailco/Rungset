@@ -29,8 +29,6 @@ export const InstallPWA = () => {
       setIsInstallable(false);
       // Clear the deferredPrompt
       deferredPrompt = null;
-      // Log or track the installation
-      console.log('PWA was installed');
     });
   }, []);
 
@@ -41,9 +39,7 @@ export const InstallPWA = () => {
     deferredPrompt.prompt();
 
     // Wait for the user to respond to the prompt
-    const { outcome } = await deferredPrompt.userChoice;
-    console.log(`User response to the install prompt: ${outcome}`);
-
+    await deferredPrompt.userChoice;
     // Clear the deferredPrompt variable
     deferredPrompt = null;
     // Hide the install button

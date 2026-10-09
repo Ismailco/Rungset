@@ -27,7 +27,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Check if the browser supports notifications
     if (!('Notification' in window)) {
-      console.log('This browser does not support notifications');
       return;
     }
 
@@ -39,7 +38,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
   const requestPermission = async () => {
     if (!('Notification' in window)) {
-      console.log('This browser does not support notifications');
       return 'denied' as NotificationPermission;
     }
 
@@ -64,14 +62,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     onClick
   }: NotificationOptions) => {
     if (!('Notification' in window)) {
-      console.log('This browser does not support notifications');
       return;
     }
 
     if (Notification.permission !== 'granted') {
       const permission = await requestPermission();
       if (permission !== 'granted') {
-        console.log('Notification permission denied');
         return;
       }
     }
