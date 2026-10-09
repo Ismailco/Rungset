@@ -4,7 +4,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { signInCredentialsSchema, signUpCredentialsSchema } from "@/lib/auth/auth-validation";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { createEmailPreferenceToken } from "@/lib/email/preference-token";
 import { user as userTable } from "@/lib/db/schema";
 
@@ -124,10 +124,27 @@ export const auth = betterAuth({
           };
         },
         after: async (newUser) => {
+          const tokenVersion = Number(newUser.marketingEmailTokenVersion ?? 0);
+          const clearPendingOptIn = async () => {
+            if (!newUser.marketingEmailPending) return;
+            try {
+              await db.update(userTable).set({
+                marketingEmailPending: false,
+                marketingEmailTokenVersion: tokenVersion + 1,
+              }).where(and(
+                eq(userTable.id, newUser.id),
+                eq(userTable.marketingEmailPending, true),
+                eq(userTable.marketingEmailTokenVersion, tokenVersion),
+              ));
+            } catch {
+              console.error(JSON.stringify({ event: "marketing_email_pending_reset_failed" }));
+            }
+          };
+
           try {
             const { env, ctx } = getCloudflareContext();
             const confirmUrl = newUser.marketingEmailPending
-              ? `${env.NEXT_PUBLIC_APP_URL}/email-preferences/confirm?token=${encodeURIComponent(await createEmailPreferenceToken(newUser.id, Number(newUser.marketingEmailTokenVersion ?? 0), "confirm", env.BETTER_AUTH_SECRET))}`
+              ? `${env.NEXT_PUBLIC_APP_URL}/email-preferences/confirm?token=${encodeURIComponent(await createEmailPreferenceToken(newUser.id, tokenVersion, "confirm", env.BETTER_AUTH_SECRET))}`
               : undefined;
             const message = [
               `Hi ${newUser.name},`,
@@ -146,12 +163,14 @@ export const auth = betterAuth({
               text: message,
             }).then(() => {
               console.info(JSON.stringify({ event: "welcome_email_sent" }));
-            }).catch((error: unknown) => {
+            }).catch(async (error: unknown) => {
               console.error(JSON.stringify({ event: "welcome_email_failed", code: getEmailErrorCode(error) }));
+              await clearPendingOptIn();
             });
             ctx.waitUntil(send);
           } catch (error) {
             console.error(JSON.stringify({ event: "welcome_email_not_scheduled", code: getEmailErrorCode(error) }));
+            await clearPendingOptIn();
           }
         },
       },

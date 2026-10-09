@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     return Response.redirect(new URL("/email-preferences/confirm?status=expired", request.url), 303);
   }
 
-  await db.update(user).set({
+  const [updated] = await db.update(user).set({
     marketingEmailOptIn: true,
     marketingEmailPending: false,
     marketingEmailConsentAt: new Date(),
@@ -30,7 +30,10 @@ export async function POST(request: Request) {
     eq(user.id, claims.userId),
     eq(user.marketingEmailPending, true),
     eq(user.marketingEmailTokenVersion, claims.version),
-  ));
+  )).returning({ id: user.id });
+  if (!updated) {
+    return Response.redirect(new URL("/email-preferences/confirm?status=expired", request.url), 303);
+  }
 
   return Response.redirect(new URL("/email-preferences/confirm?status=confirmed", request.url), 303);
 }
