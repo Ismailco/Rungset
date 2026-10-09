@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppPage, AppPageHeader, AppPanel } from '@/components/app/shared/AppPage';
 
 type AdminTab = 'overview' | 'users' | 'email' | 'logs';
@@ -64,6 +64,7 @@ export default function AdminDashboard({ adminName }: { adminName: string }) {
   const [sending, setSending] = useState(false);
   const [sendStatus, setSendStatus] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  const usersRequestId = useRef(0);
 
   const loadOverview = useCallback(async () => {
     setOverviewError(null);
@@ -78,6 +79,7 @@ export default function AdminDashboard({ adminName }: { adminName: string }) {
   }, []);
 
   const loadUsers = useCallback(async () => {
+    const requestId = ++usersRequestId.current;
     setUsersLoading(true);
     setUsersError(null);
     try {
@@ -86,12 +88,16 @@ export default function AdminDashboard({ adminName }: { adminName: string }) {
       const response = await fetch(`/api/admin/users?${params}`, { cache: 'no-store' });
       const result = await response.json() as { users?: AdminUser[]; total?: number; error?: string };
       if (!response.ok) throw new Error(result.error ?? 'Could not load users.');
-      setUsers(result.users ?? []);
-      setUserTotal(result.total ?? 0);
+      if (requestId === usersRequestId.current) {
+        setUsers(result.users ?? []);
+        setUserTotal(result.total ?? 0);
+      }
     } catch (error) {
-      setUsersError(error instanceof Error ? error.message : 'Could not load users.');
+      if (requestId === usersRequestId.current) {
+        setUsersError(error instanceof Error ? error.message : 'Could not load users.');
+      }
     } finally {
-      setUsersLoading(false);
+      if (requestId === usersRequestId.current) setUsersLoading(false);
     }
   }, [appliedSearch, userPage]);
 
