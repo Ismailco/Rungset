@@ -41,7 +41,6 @@ export const cacheAppPages = async (): Promise<boolean> => {
                 PWA_CACHE_VERSION_KEY,
                 event.data.version ?? PWA_CACHE_VERSION,
               );
-              console.log('✅ App pages cached successfully');
               resolve(true);
             } else {
               console.warn('⚠️ Some pages failed to cache:', event.data.failedUrls);
@@ -127,7 +126,6 @@ export default function ServiceWorkerProvider({
           .then((reg) => {
             if (!reg) return;
 
-            console.log('✅ Service Worker registered:', reg.scope);
             void syncPendingWorkspaceChanges();
           })
           .catch((err) => console.error('❌ SW registration failed:', err));
