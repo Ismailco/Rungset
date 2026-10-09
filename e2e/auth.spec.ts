@@ -104,8 +104,8 @@ test("unverified users must verify before sign-in and can request a fresh link",
   expect(duplicateBody.user.name).toBe("Unrelated Submitted Name");
   await expect(page.getByRole("status")).toHaveText(SIGN_UP_NOTICE);
 
-  const signIn = async (emailAddress: string, password: string) => {
-    await page.goto("/auth/signin");
+  const signIn = async (emailAddress: string, password: string, callbackUrl = "/dashboard") => {
+    await page.goto(`/auth/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`);
     await page.getByLabel("Email").fill(emailAddress);
     await page.getByLabel("Password", { exact: true }).fill(password);
     const responsePromise = page.waitForResponse((response) => (
@@ -125,8 +125,13 @@ test("unverified users must verify before sign-in and can request a fresh link",
   expect(wrongPassword.status()).toBe(401);
   await expect(page.getByRole("alert").locator("p")).toHaveText(unknownMessage ?? "");
 
-  const unverifiedSignIn = await signIn(email, TEST_PASSWORD);
+  const callbackUrl = "/goals/123?tab=milestones";
+  const unverifiedSignIn = await signIn(email, TEST_PASSWORD, callbackUrl);
   expect(unverifiedSignIn.status()).toBe(403);
+  expect(unverifiedSignIn.request().postDataJSON()).toHaveProperty(
+    "callbackURL",
+    callbackUrl,
+  );
   await expect(page.getByRole("alert").locator("p")).toContainText("verify your email address");
   const resendResponsePromise = page.waitForResponse((response) => (
     response.url().includes("/api/auth/send-verification-email") && response.request().method() === "POST"
@@ -134,7 +139,10 @@ test("unverified users must verify before sign-in and can request a fresh link",
   await page.getByRole("button", { name: "Resend verification email" }).click();
   const resendResponse = await resendResponsePromise;
   expect(resendResponse.status()).toBe(200);
-  expect(resendResponse.request().postDataJSON()).toHaveProperty("callbackURL", "/auth/verify-email?callbackUrl=%2Fdashboard");
+  expect(resendResponse.request().postDataJSON()).toHaveProperty(
+    "callbackURL",
+    `/auth/verify-email?callbackUrl=${encodeURIComponent(callbackUrl)}`,
+  );
   await expect(page.getByRole("status")).toContainText("a fresh link has been sent");
 
   markTestEmailVerified(email);
@@ -145,7 +153,7 @@ test("unverified users must verify before sign-in and can request a fresh link",
 test("invalid verification links offer a resend and preserve the requested destination", async ({ page }) => {
   const callbackUrl = "/goals/123?tab=milestones";
   await page.goto(`/auth/verify-email?callbackUrl=${encodeURIComponent(callbackUrl)}&error=invalid_token`);
-  await expect(page.getByRole("alert")).toHaveText("That verification link is invalid or has expired. Request a fresh link below.");
+  await expect(page.locator('p[role="alert"]')).toHaveText("That verification link is invalid or has expired. Request a fresh link below.");
 
   await page.getByLabel("Email").fill("expired-link@example.com");
   const resendResponsePromise = page.waitForResponse((response) => (

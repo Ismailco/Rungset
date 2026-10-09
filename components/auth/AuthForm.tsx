@@ -55,9 +55,9 @@ export function AuthForm({ mode }: AuthFormProps) {
     if (session.user.emailVerified) {
       goToApp();
     } else {
-      window.location.replace("/auth/verify-email");
+      window.location.replace(verificationCallbackUrl);
     }
-  }, [goToApp, isPending, session]);
+  }, [goToApp, isPending, session, verificationCallbackUrl]);
 
   useEffect(() => {
     if (searchParams.get("error")?.toLowerCase().includes("email_not_verified")) {

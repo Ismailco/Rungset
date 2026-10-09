@@ -6,9 +6,26 @@ import { signInCredentialsSchema, signUpCredentialsSchema } from "@/lib/auth/aut
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { and, eq } from "drizzle-orm";
 import { createEmailPreferenceToken } from "@/lib/email/preference-token";
+import { getEmailVerificationCallbackUrl, getSafeCallbackUrl } from "@/lib/auth/callback-url";
 import { user as userTable } from "@/lib/db/schema";
 
 const AUTH_BASE_PATH = "/api/auth";
+
+function getSignInVerificationUrl(url: string, request?: Request) {
+  if (!request || new URL(request.url).pathname !== `${AUTH_BASE_PATH}/sign-in/email`) {
+    return url;
+  }
+
+  const verificationUrl = new URL(url);
+  const callbackUrl = verificationUrl.searchParams.get("callbackURL");
+  if (!callbackUrl) return url;
+
+  verificationUrl.searchParams.set(
+    "callbackURL",
+    getEmailVerificationCallbackUrl(getSafeCallbackUrl(callbackUrl)),
+  );
+  return verificationUrl.toString();
+}
 
 function readEnv(name: string) {
   const value = process.env[name]?.trim();
@@ -102,11 +119,12 @@ export const auth = betterAuth({
   // limiter from coupling independent browser journeys in that disposable DB.
   ...(disableRateLimitForLocalTests ? { rateLimit: { enabled: false } } : {}),
   emailVerification: {
-    sendVerificationEmail: async ({ user, url }) => {
+    sendVerificationEmail: async ({ user, url }, request) => {
       try {
         const { env, ctx } = getCloudflareContext();
+        const verificationUrl = getSignInVerificationUrl(url, request);
         const safeName = escapeEmailHtml(user.name);
-        const safeUrl = escapeEmailHtml(url);
+        const safeUrl = escapeEmailHtml(verificationUrl);
         const send = env.EMAIL.send({
           from: "hello@rungset.com",
           to: user.email,
@@ -115,7 +133,7 @@ export const auth = betterAuth({
             `Hello ${user.name},`,
             "",
             "Welcome to Rungset. Confirm your email address to activate your account:",
-            url,
+            verificationUrl,
             "",
             "This link expires in one hour. If you did not create a Rungset account, you can ignore this email.",
           ].join("\n"),

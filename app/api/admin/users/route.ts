@@ -2,6 +2,7 @@ import { count, desc, eq, like, or } from "drizzle-orm";
 import { z } from "zod";
 import { auth } from "@/lib/auth/auth";
 import { getAdminAccess, isSameOriginRequest } from "@/lib/admin/access";
+import { getEmailVerificationCallbackUrl } from "@/lib/auth/callback-url";
 import { db } from "@/lib/db/db";
 import { user } from "@/lib/db/schema";
 
@@ -68,7 +69,10 @@ export async function POST(request: Request) {
     const result = await auth.api.sendVerificationEmail({
       body: {
         email: account.email,
-        callbackURL: new URL("/", env.NEXT_PUBLIC_APP_URL).toString(),
+        callbackURL: new URL(
+          getEmailVerificationCallbackUrl("/dashboard"),
+          env.NEXT_PUBLIC_APP_URL,
+        ).toString(),
       },
     });
     if (!result.status) throw new Error("Verification email was not accepted.");
