@@ -604,6 +604,11 @@ function LogsPanel() {
       });
     } catch (loadError) {
       if (currentRequestId === requestId.current) {
+        if (!append) {
+          setLogs([]);
+          setTotal(0);
+          setNextCursor(null);
+        }
         setError(loadError instanceof Error ? loadError.message : 'Could not load Cloudflare logs.');
       }
     } finally {
