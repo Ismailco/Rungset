@@ -569,6 +569,7 @@ function LogsPanel() {
   const [searchDraft, setSearchDraft] = useState('');
   const [filters, setFilters] = useState({ range: '7d', level: 'all', search: '' });
   const requestId = useRef(0);
+  const timeframeEndRef = useRef<number | null>(null);
 
   const loadLogs = useCallback(async (cursor: string | null, append: boolean) => {
     const currentRequestId = ++requestId.current;
@@ -581,18 +582,27 @@ function LogsPanel() {
     try {
       const params = new URLSearchParams({ range: filters.range, level: filters.level });
       if (filters.search) params.set('search', filters.search);
-      if (cursor) params.set('cursor', cursor);
+      if (cursor) {
+        if (timeframeEndRef.current === null) throw new Error('Refresh logs before loading another page.');
+        params.set('cursor', cursor);
+        params.set('timeframeEnd', String(timeframeEndRef.current));
+      }
       const response = await fetch(`/api/admin/logs?${params}`, { cache: 'no-store' });
       const result = await response.json() as {
         configured?: boolean;
         count?: number;
         logs?: RuntimeLog[];
+        timeframeEnd?: number;
         nextCursor?: string | null;
         error?: string;
       };
       if (!response.ok) throw new Error(result.error ?? 'Could not load Cloudflare logs.');
       if (currentRequestId !== requestId.current) return;
 
+      if (result.nextCursor && !Number.isSafeInteger(result.timeframeEnd)) {
+        throw new Error('Could not continue loading Cloudflare logs. Refresh and try again.');
+      }
+      timeframeEndRef.current = result.timeframeEnd ?? null;
       setConfigured(result.configured ?? false);
       setTotal(result.count ?? 0);
       setNextCursor(result.nextCursor ?? null);
@@ -605,6 +615,7 @@ function LogsPanel() {
     } catch (loadError) {
       if (currentRequestId === requestId.current) {
         if (!append) {
+          timeframeEndRef.current = null;
           setLogs([]);
           setTotal(0);
           setNextCursor(null);

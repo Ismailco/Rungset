@@ -38,6 +38,8 @@ export async function GET(request: Request) {
     });
   }
 
+  const query = createWorkerLogQuery(filters, Date.now());
+
   try {
     const response = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/workers/observability/telemetry/query`,
@@ -47,7 +49,7 @@ export async function GET(request: Request) {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(createWorkerLogQuery(filters, Date.now())),
+        body: JSON.stringify(query),
         signal: AbortSignal.timeout(10_000),
       },
     );
@@ -94,6 +96,7 @@ export async function GET(request: Request) {
       configured: true,
       count: result.result?.events?.count ?? events.length,
       logs,
+      timeframeEnd: query.timeframe.to,
       nextCursor: events.length === WORKER_LOG_PAGE_SIZE && lastId ? lastId : null,
     }, { headers: { "Cache-Control": "no-store" } });
   } catch {
