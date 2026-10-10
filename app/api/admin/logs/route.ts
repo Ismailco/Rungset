@@ -38,6 +38,7 @@ export async function GET(request: Request) {
           timeframe: { from: now - 24 * 60 * 60 * 1000, to: now },
           limit: 100,
           dry: true,
+          view: "events",
           parameters: {
             datasets: ["cloudflare-workers"],
             filterCombination: "and",
@@ -47,7 +48,6 @@ export async function GET(request: Request) {
               type: "string",
               value: "rungset",
             }],
-            view: "events",
           },
         }),
         signal: AbortSignal.timeout(10_000),
