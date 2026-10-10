@@ -694,7 +694,7 @@ function LogsPanel() {
       ))}
       {nextCursor ? (
         <div className="flex justify-center">
-          <button className="app-button-secondary" type="button" disabled={loadingMore} onClick={() => void loadLogs(nextCursor, true)}>
+          <button className="app-button-secondary" type="button" disabled={loading || loadingMore} onClick={() => void loadLogs(nextCursor, true)}>
             {loadingMore ? 'Loading more…' : 'Load more logs'}
           </button>
         </div>
