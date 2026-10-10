@@ -7,11 +7,18 @@ type AdminTab = 'overview' | 'users' | 'email' | 'logs';
 
 interface Overview {
   users: number;
+  verifiedUsers: number;
+  unverifiedUsers: number;
   newUsers30d: number;
   activeUsers30d: number;
   goals: number;
-  tasks: number;
+  activeGoals: number;
+  completedGoals: number;
+  notStartedGoals: number;
+  openTasks: number;
+  completedTasks: number;
   checkIns: number;
+  checkIns30d: number;
   subscribers: number;
 }
 
@@ -25,16 +32,24 @@ interface AdminUser {
   marketingEmailOptIn: boolean;
   marketingEmailPending: boolean;
   marketingEmailUnsubscribedAt: string | null;
+  goals: number;
+  tasks: number;
+  checkIns: number;
+  protectedAccount: boolean;
 }
 
 interface RuntimeLog {
   id: string;
   timestamp: number | null;
+  level: string | null;
   message: string;
   service: string;
   statusCode: number | null;
   trigger: string | null;
   rayId: string | null;
+  requestId: string | null;
+  dataset: string | null;
+  event: Record<string, unknown>;
 }
 
 const tabs: { id: AdminTab; label: string }[] = [
@@ -55,10 +70,6 @@ export default function AdminDashboard({ adminName }: { adminName: string }) {
   const [appliedSearch, setAppliedSearch] = useState('');
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
-  const [logs, setLogs] = useState<RuntimeLog[]>([]);
-  const [logsConfigured, setLogsConfigured] = useState<boolean | null>(null);
-  const [logsLoading, setLogsLoading] = useState(false);
-  const [logsError, setLogsError] = useState<string | null>(null);
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
@@ -103,30 +114,32 @@ export default function AdminDashboard({ adminName }: { adminName: string }) {
     }
   }, [appliedSearch, userPage]);
 
-  const loadLogs = useCallback(async () => {
-    setLogsLoading(true);
-    setLogsError(null);
-    try {
-      const response = await fetch('/api/admin/logs', { cache: 'no-store' });
-      const result = await response.json() as { configured?: boolean; logs?: RuntimeLog[]; error?: string };
-      if (!response.ok) throw new Error(result.error ?? 'Could not load Cloudflare logs.');
-      setLogsConfigured(result.configured ?? false);
-      setLogs(result.logs ?? []);
-    } catch (error) {
-      setLogsError(error instanceof Error ? error.message : 'Could not load Cloudflare logs.');
-    } finally {
-      setLogsLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     void loadOverview();
   }, [loadOverview]);
 
   useEffect(() => {
     if (activeTab === 'users') void loadUsers();
-    if (activeTab === 'logs') void loadLogs();
-  }, [activeTab, loadLogs, loadUsers]);
+  }, [activeTab, loadUsers]);
+
+  const deleteAdminUser = useCallback(async (userId: string, confirmationEmail: string) => {
+    const response = await fetch('/api/admin/users', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, confirmationEmail }),
+    });
+    const result = await response.json() as { error?: string };
+    if (!response.ok) throw new Error(result.error ?? 'Could not delete this user.');
+
+    setUsers((current) => current.filter((account) => account.id !== userId));
+    setUserTotal((current) => Math.max(0, current - 1));
+    if (users.length === 1 && userPage > 1) {
+      setUserPage((current) => current - 1);
+    } else {
+      await loadUsers();
+    }
+    await loadOverview();
+  }, [loadOverview, loadUsers, userPage, users.length]);
 
   async function submitBroadcast(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -226,6 +239,7 @@ export default function AdminDashboard({ adminName }: { adminName: string }) {
             onPageChange={setUserPage}
             onRefresh={() => void loadUsers()}
             onResendVerification={(userId) => void resendUserVerification(userId)}
+            onDeleteUser={deleteAdminUser}
             resendingUserId={resendingUserId}
             verificationAction={verificationAction}
           />
@@ -244,7 +258,7 @@ export default function AdminDashboard({ adminName }: { adminName: string }) {
           />
         ) : null}
         {activeTab === 'logs' ? (
-          <LogsPanel logs={logs} configured={logsConfigured} loading={logsLoading} error={logsError} onRefresh={() => void loadLogs()} />
+          <LogsPanel />
         ) : null}
       </section>
     </AppPage>
@@ -254,11 +268,18 @@ export default function AdminDashboard({ adminName }: { adminName: string }) {
 function OverviewPanel({ overview, error, onRefresh }: { overview: Overview | null; error: string | null; onRefresh: () => void }) {
   const stats = [
     { label: 'Registered users', value: overview?.users },
+    { label: 'Verified users', value: overview?.verifiedUsers },
+    { label: 'Needs email verification', value: overview?.unverifiedUsers },
     { label: 'New users · 30 days', value: overview?.newUsers30d },
     { label: 'Signed in · 30 days', value: overview?.activeUsers30d },
-    { label: 'Goals', value: overview?.goals },
-    { label: 'Tasks', value: overview?.tasks },
+    { label: 'Total goals', value: overview?.goals },
+    { label: 'Goals · not started', value: overview?.notStartedGoals },
+    { label: 'Goals · in progress', value: overview?.activeGoals },
+    { label: 'Goals · completed', value: overview?.completedGoals },
+    { label: 'Tasks · open', value: overview?.openTasks },
+    { label: 'Tasks · completed', value: overview?.completedTasks },
     { label: 'Check-ins', value: overview?.checkIns },
+    { label: 'Check-ins · 30 days', value: overview?.checkIns30d },
     { label: 'Confirmed email subscribers', value: overview?.subscribers },
   ];
 
@@ -294,6 +315,7 @@ function UsersPanel({
   onPageChange,
   onRefresh,
   onResendVerification,
+  onDeleteUser,
   resendingUserId,
   verificationAction,
 }: {
@@ -309,16 +331,39 @@ function UsersPanel({
   onPageChange: (page: number) => void;
   onRefresh: () => void;
   onResendVerification: (userId: string) => void;
+  onDeleteUser: (userId: string, confirmationEmail: string) => Promise<void>;
   resendingUserId: string | null;
   verificationAction: { userId: string; message: string; error: boolean } | null;
 }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const [pendingDelete, setPendingDelete] = useState<AdminUser | null>(null);
+  const [confirmationEmail, setConfirmationEmail] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function confirmDelete(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!pendingDelete || deleteLoading) return;
+
+    setDeleteLoading(true);
+    setDeleteError(null);
+    try {
+      await onDeleteUser(pendingDelete.id, confirmationEmail);
+      setPendingDelete(null);
+      setConfirmationEmail('');
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : 'Could not delete this user.');
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
+
   return (
     <AppPanel className="p-5 sm:p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-white">Users</h2>
-          <p className="mt-1 text-sm text-[var(--text-secondary)]">Names, email addresses, signup and last-login dates.</p>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">Account status, recent sign-in, and each user’s goals, tasks, and check-ins.</p>
         </div>
         <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); onSearch(); }}>
           <label className="sr-only" htmlFor="admin-user-search">Search users</label>
@@ -332,7 +377,7 @@ function UsersPanel({
       </div>
       {error ? <ErrorNotice className="mt-4">{error}</ErrorNotice> : null}
       <div className="mt-4 overflow-x-auto">
-        <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[1120px] border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-[var(--border-default)] text-xs uppercase tracking-wide text-[var(--text-muted)]">
               <th className="px-3 py-3 font-medium">Name</th>
@@ -340,12 +385,14 @@ function UsersPanel({
               <th className="px-3 py-3 font-medium">Verification</th>
               <th className="px-3 py-3 font-medium">Joined</th>
               <th className="px-3 py-3 font-medium">Last login</th>
+              <th className="px-3 py-3 font-medium">App data</th>
               <th className="px-3 py-3 font-medium">Email updates</th>
+              <th className="px-3 py-3 font-medium">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {loading ? <tr><td className="px-3 py-8 text-[var(--text-secondary)]" colSpan={6}>Loading users…</td></tr> : null}
-            {!loading && users.length === 0 ? <tr><td className="px-3 py-8 text-[var(--text-secondary)]" colSpan={6}>No users found.</td></tr> : null}
+            {loading ? <tr><td className="px-3 py-8 text-[var(--text-secondary)]" colSpan={8}>Loading users…</td></tr> : null}
+            {!loading && users.length === 0 ? <tr><td className="px-3 py-8 text-[var(--text-secondary)]" colSpan={8}>No users found.</td></tr> : null}
             {!loading ? users.map((account) => (
               <tr key={account.id} className="border-b border-[var(--border-subtle)] last:border-0">
                 <td className="px-3 py-3 font-medium text-white">{account.name}</td>
@@ -376,7 +423,27 @@ function UsersPanel({
                 </td>
                 <td className="px-3 py-3 text-[var(--text-secondary)]">{formatDate(account.createdAt)}</td>
                 <td className="px-3 py-3 text-[var(--text-secondary)]">{formatDate(account.lastLoginAt)}</td>
+                <td className="px-3 py-3 text-[var(--text-secondary)]">
+                  {account.goals} goals · {account.tasks} tasks · {account.checkIns} check-ins
+                </td>
                 <td className="px-3 py-3 text-[var(--text-secondary)]">{emailStatus(account)}</td>
+                <td className="px-3 py-3">
+                  {account.protectedAccount ? (
+                    <span className="text-xs text-[var(--text-muted)]">Protected admin</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="app-button-secondary app-button-sm"
+                      onClick={() => {
+                        setPendingDelete(account);
+                        setConfirmationEmail('');
+                        setDeleteError(null);
+                      }}
+                    >
+                      Delete user
+                    </button>
+                  )}
+                </td>
               </tr>
             )) : null}
           </tbody>
@@ -387,6 +454,56 @@ function UsersPanel({
         <span className="text-sm text-[var(--text-secondary)]">Page {page} of {totalPages}</span>
         <button className="app-button-secondary app-button-sm" type="button" disabled={page >= totalPages || loading} onClick={() => onPageChange(page + 1)}>Next</button>
       </div>
+      {pendingDelete ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="presentation">
+          <section
+            className="w-full max-w-lg rounded-[var(--radius-panel)] border border-[var(--border-default)] bg-[var(--surface-raised)] p-6 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-user-title"
+          >
+            <h3 id="delete-user-title" className="text-lg font-semibold text-white">Delete {pendingDelete.name}?</h3>
+            <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+              This permanently removes {pendingDelete.email}, their authentication records, subscription, goals, milestones, tasks, check-ins, and notes. This cannot be undone.
+            </p>
+            <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+              This removes Rungset’s server-side records, not copies already downloaded to the user’s browser. Cloudflare runtime logs are separate and follow Cloudflare’s retention period.
+            </p>
+            {deleteError ? <ErrorNotice className="mt-4">{deleteError}</ErrorNotice> : null}
+            <form className="mt-5 space-y-4" onSubmit={(event) => void confirmDelete(event)}>
+              <label className="block text-sm text-[var(--text-secondary)]" htmlFor="delete-user-confirmation">
+                Type the user’s email to confirm
+              </label>
+              <input
+                id="delete-user-confirmation"
+                className="app-field"
+                type="email"
+                autoComplete="off"
+                required
+                value={confirmationEmail}
+                onChange={(event) => setConfirmationEmail(event.target.value)}
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="app-button-secondary"
+                  disabled={deleteLoading}
+                  onClick={() => { setPendingDelete(null); setConfirmationEmail(''); setDeleteError(null); }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="app-button-danger"
+                  disabled={deleteLoading || confirmationEmail.trim().toLowerCase() !== pendingDelete.email.toLowerCase()}
+                >
+                  {deleteLoading ? 'Deleting…' : 'Permanently delete'}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </AppPanel>
   );
 }
@@ -439,30 +556,149 @@ function EmailPanel({
   );
 }
 
-function LogsPanel({ logs, configured, loading, error, onRefresh }: { logs: RuntimeLog[]; configured: boolean | null; loading: boolean; error: string | null; onRefresh: () => void }) {
+function LogsPanel() {
+  const [logs, setLogs] = useState<RuntimeLog[]>([]);
+  const [configured, setConfigured] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [total, setTotal] = useState(0);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [rangeDraft, setRangeDraft] = useState<'1h' | '24h' | '7d'>('7d');
+  const [levelDraft, setLevelDraft] = useState('all');
+  const [searchDraft, setSearchDraft] = useState('');
+  const [filters, setFilters] = useState({ range: '7d', level: 'all', search: '' });
+  const requestId = useRef(0);
+
+  const loadLogs = useCallback(async (cursor: string | null, append: boolean) => {
+    const currentRequestId = ++requestId.current;
+    if (append) setLoadingMore(true);
+    else {
+      setLoading(true);
+      setError(null);
+    }
+
+    try {
+      const params = new URLSearchParams({ range: filters.range, level: filters.level });
+      if (filters.search) params.set('search', filters.search);
+      if (cursor) params.set('cursor', cursor);
+      const response = await fetch(`/api/admin/logs?${params}`, { cache: 'no-store' });
+      const result = await response.json() as {
+        configured?: boolean;
+        count?: number;
+        logs?: RuntimeLog[];
+        nextCursor?: string | null;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(result.error ?? 'Could not load Cloudflare logs.');
+      if (currentRequestId !== requestId.current) return;
+
+      setConfigured(result.configured ?? false);
+      setTotal(result.count ?? 0);
+      setNextCursor(result.nextCursor ?? null);
+      const incoming = result.logs ?? [];
+      setLogs((current) => {
+        if (!append) return incoming;
+        const currentIds = new Set(current.map((entry) => entry.id));
+        return [...current, ...incoming.filter((entry) => !currentIds.has(entry.id))];
+      });
+    } catch (loadError) {
+      if (currentRequestId === requestId.current) {
+        setError(loadError instanceof Error ? loadError.message : 'Could not load Cloudflare logs.');
+      }
+    } finally {
+      if (currentRequestId === requestId.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    }
+  }, [filters]);
+
+  useEffect(() => {
+    void loadLogs(null, false);
+  }, [loadLogs]);
+
+  function applyFilters(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFilters({ range: rangeDraft, level: levelDraft, search: searchDraft.trim() });
+  }
+
   return (
     <div className="space-y-4">
-      <SectionHeading title="Cloudflare Worker logs · last 24 hours" action={<button className="app-button-secondary app-button-sm" type="button" onClick={onRefresh} disabled={loading}>Refresh</button>} />
+      <SectionHeading
+        title="Cloudflare Worker logs"
+        action={<button className="app-button-secondary app-button-sm" type="button" onClick={() => void loadLogs(null, false)} disabled={loading || loadingMore}>Refresh</button>}
+      />
+      <AppPanel className="p-5">
+        <p className="text-sm leading-6 text-[var(--text-secondary)]">
+          Browse and filter Rungset Worker events. Cloudflare retains Worker logs for up to 7 days; older events are not available here.
+        </p>
+        <form className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(12rem,1fr)_12rem_12rem_auto]" onSubmit={applyFilters}>
+          <div>
+            <label className="mb-1 block text-xs text-[var(--text-muted)]" htmlFor="admin-log-search">Search all event fields</label>
+            <input id="admin-log-search" className="app-field" type="search" maxLength={100} placeholder="Message, route, request ID…" value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-[var(--text-muted)]" htmlFor="admin-log-range">Time range</label>
+            <select id="admin-log-range" className="app-field" value={rangeDraft} onChange={(event) => setRangeDraft(event.target.value as '1h' | '24h' | '7d')}>
+              <option value="1h">Past hour</option>
+              <option value="24h">Past 24 hours</option>
+              <option value="7d">Past 7 days</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-[var(--text-muted)]" htmlFor="admin-log-level">Severity</label>
+            <select id="admin-log-level" className="app-field" value={levelDraft} onChange={(event) => setLevelDraft(event.target.value)}>
+              <option value="all">All levels</option>
+              <option value="error">Error</option>
+              <option value="warn">Warning</option>
+              <option value="info">Info</option>
+              <option value="log">Log</option>
+              <option value="debug">Debug</option>
+            </select>
+          </div>
+          <button className="app-button self-end" type="submit" disabled={loading || loadingMore}>Apply filters</button>
+        </form>
+      </AppPanel>
       {configured === false ? (
         <AppPanel className="p-5 text-sm leading-6 text-[var(--text-secondary)]">
-          Log access is not configured. Set the server secret <code>RUNGSET_OBSERVABILITY_API_TOKEN</code> to enable the log view. Cloudflare currently requires an account-scoped Workers Observability Write token for its query endpoint, even though this app only submits read queries; the credential stays on the server.
+          Log access is not configured. Set the server secret <code>RUNGSET_OBSERVABILITY_API_TOKEN</code> to enable the log view. Cloudflare requires a Workers Observability Write token for its query endpoint; the credential stays on the server.
         </AppPanel>
       ) : null}
       {error ? <ErrorNotice>{error}</ErrorNotice> : null}
       {loading ? <AppPanel className="p-5 text-sm text-[var(--text-secondary)]">Loading Cloudflare logs…</AppPanel> : null}
-      {!loading && configured && logs.length === 0 ? <AppPanel className="p-5 text-sm text-[var(--text-secondary)]">No runtime events found for this period.</AppPanel> : null}
+      {!loading && configured && logs.length === 0 ? <AppPanel className="p-5 text-sm text-[var(--text-secondary)]">No runtime events match these filters.</AppPanel> : null}
+      {logs.length > 0 ? (
+        <p className="text-sm text-[var(--text-secondary)]">
+          Showing {logs.length.toLocaleString()} events; Cloudflare reports {total.toLocaleString()} matching events for this filter.
+        </p>
+      ) : null}
       {logs.map((entry) => (
         <AppPanel key={entry.id} className="overflow-hidden p-4 sm:p-5">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
             <time dateTime={entry.timestamp ? new Date(entry.timestamp).toISOString() : undefined}>{formatTimestamp(entry.timestamp)}</time>
+            {entry.level ? <span className="app-pill app-pill-blue">{entry.level}</span> : null}
             <span>{entry.service}</span>
+            {entry.dataset ? <span>{entry.dataset}</span> : null}
             {entry.trigger ? <span>{entry.trigger}</span> : null}
             {entry.statusCode ? <span>Status {entry.statusCode}</span> : null}
+            {entry.requestId ? <span className="font-mono">Request {entry.requestId}</span> : null}
             {entry.rayId ? <span className="font-mono">Ray {entry.rayId}</span> : null}
           </div>
           <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-[var(--text-primary)]">{entry.message}</pre>
+          <details className="mt-3 text-xs text-[var(--text-secondary)]">
+            <summary className="cursor-pointer">Full event details</summary>
+            <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-control)] bg-[var(--bg-surface)] p-3 font-mono leading-5">{JSON.stringify(entry.event, null, 2)}</pre>
+          </details>
         </AppPanel>
       ))}
+      {nextCursor ? (
+        <div className="flex justify-center">
+          <button className="app-button-secondary" type="button" disabled={loadingMore} onClick={() => void loadLogs(nextCursor, true)}>
+            {loadingMore ? 'Loading more…' : 'Load more logs'}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
