@@ -573,10 +573,10 @@ function LogsPanel() {
 
   const loadLogs = useCallback(async (cursor: string | null, append: boolean) => {
     const currentRequestId = ++requestId.current;
+    setError(null);
     if (append) setLoadingMore(true);
     else {
       setLoading(true);
-      setError(null);
     }
 
     try {
