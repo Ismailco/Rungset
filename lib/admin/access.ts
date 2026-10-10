@@ -2,20 +2,17 @@ import "server-only";
 
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { getVerifiedSession } from "@/lib/server/authenticated-user";
+import { isAdminEmailAddress } from "@/lib/admin/allowlist";
 
 export async function getAdminAccess(requestHeaders: Headers) {
   const session = await getVerifiedSession(requestHeaders);
   const env = getCloudflareContext().env;
   const configuredEmails = (env as unknown as Record<string, unknown>).RUNGSET_ADMIN_EMAILS;
-  const allowlist = typeof configuredEmails === "string"
-    ? configuredEmails.split(",").map((email) => email.trim().toLowerCase()).filter(Boolean)
-    : [];
-  const email = session?.user.email.trim().toLowerCase();
 
   return {
     env,
     session,
-    isAdmin: Boolean(session?.user.emailVerified && email && allowlist.includes(email)),
+    isAdmin: Boolean(session?.user.emailVerified && isAdminEmailAddress(session.user.email, configuredEmails)),
   };
 }
 
