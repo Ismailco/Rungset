@@ -11,6 +11,15 @@ const baseUrl = `http://localhost:${port}`;
 function run(command, args) {
   const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', env: { ...process.env } });
   if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed\n${result.stdout}\n${result.stderr}`);
+  return result.stdout;
+}
+
+function queryDatabase(command) {
+  const output = run('pnpm', [
+    'exec', 'wrangler', 'd1', 'execute', 'goalgenius_db', '--local', '--persist-to', persistDir,
+    '--config', 'wrangler.jsonc', '--command', command, '--json',
+  ]);
+  return JSON.parse(output)[0]?.results ?? [];
 }
 
 function markEmailVerified(email) {
@@ -66,7 +75,7 @@ const persistDir = await mkdtemp(join(tmpdir(), 'rungset-integration-'));
 let worker;
 try {
   run('pnpm', ['exec', 'wrangler', 'd1', 'migrations', 'apply', 'goalgenius_db', '--local', '--persist-to', persistDir, '--config', 'wrangler.jsonc']);
-  worker = spawn('pnpm', ['exec', 'wrangler', 'dev', '--local', '--persist-to', persistDir, '--port', String(port), '--config', 'wrangler.jsonc', '--show-interactive-dev-session', 'false'], {
+  worker = spawn('pnpm', ['exec', 'wrangler', 'dev', '--local', '--persist-to', persistDir, '--port', String(port), '--config', 'wrangler.jsonc', '--var', 'RUNGSET_ADMIN_EMAILS:rungset-admin@example.com', '--show-interactive-dev-session', 'false'], {
     cwd: root,
     env: { ...process.env, BETTER_AUTH_URL: baseUrl, BETTER_AUTH_E2E_TEST_MODE: 'true', NEXT_PUBLIC_APP_URL: baseUrl, NODE_ENV: 'test' },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -122,6 +131,12 @@ try {
   const noteB = await userB.expect('/api/notes', 201, { method: 'POST', body: { title: 'B note', content: 'Private B' } });
   const checkInB = await userB.expect('/api/checkins', 201, { method: 'POST', body: { goalId: goalB.id, date: '2026-01-20', mood: 'good', energy: 'medium', accomplishments: ['B progress'], challenges: ['B blocker'], goals: ['B focus'] } });
   const checkInA = await userA.expect('/api/checkins', 201, { method: 'POST', body: { goalId: goalA.id, date: '2026-01-20', mood: 'good', energy: 'medium', accomplishments: ['A progress'], challenges: [], goals: ['A focus'] } });
+  const noteA = await userA.expect('/api/notes', 201, { method: 'POST', body: { title: 'A note', content: 'Private A' } });
+  const retainedCheckInA = await userA.expect('/api/checkins', 201, { method: 'POST', body: { goalId: goalA2.id, date: '2026-01-21', mood: 'great', energy: 'high', accomplishments: ['A progress'], challenges: [], goals: ['A focus'] } });
+  const recurringDeleteTask = await userA.expect('/api/todos', 201, { method: 'POST', body: { title: 'Deletion test task', priority: 'low', recurrence: 'weekly' } });
+  await userA.expect('/api/todos', 200, { method: 'PUT', body: { id: recurringDeleteTask.id, completed: true } });
+  const deleteOccurrences = await userA.expect(`/api/todo-occurrences?todoId=${recurringDeleteTask.id}`, 200);
+  assert.equal(deleteOccurrences.length, 1);
 
   await userA.expect(`/api/goals/${goalB.id}`, 404);
   await userA.expect(`/api/milestones/${milestoneB.id}`, 404);
@@ -174,7 +189,69 @@ try {
   const deletedOccurrences = await userA.expect(`/api/todo-occurrences?todoId=${taskA.id}`, 200);
   assert.equal(deletedOccurrences.length, 0);
   await userA.expect(`/api/checkins/${checkInA.id}`, 404);
-  console.log('Authorization, preference concurrency, relationship, recurring completion, and history integration tests passed.');
+
+  const admin = new Client();
+  await admin.expect('/api/auth/sign-up/email', 200, { method: 'POST', body: { name: 'Test Admin', email: 'rungset-admin@example.com', password } });
+  markEmailVerified('rungset-admin@example.com');
+  await admin.expect('/api/auth/sign-in/email', 200, { method: 'POST', body: { email: 'rungset-admin@example.com', password } });
+  await userA.expect('/api/admin/users', 404);
+
+  const usersBeforeDelete = await admin.expect('/api/admin/users', 200);
+  const accountToDelete = usersBeforeDelete.users.find((account) => account.email === 'rungset-a@example.com');
+  const adminAccount = usersBeforeDelete.users.find((account) => account.email === 'rungset-admin@example.com');
+  assert.ok(accountToDelete);
+  assert.ok(adminAccount);
+  assert.equal(accountToDelete.goals, 1);
+  assert.equal(accountToDelete.checkIns, 1);
+
+  const escapedTargetId = accountToDelete.id.replace(/'/g, "''");
+  run('pnpm', ['exec', 'wrangler', 'd1', 'execute', 'goalgenius_db', '--local', '--persist-to', persistDir, '--config', 'wrangler.jsonc', '--command', [
+    `INSERT INTO subscriptions (user_id, plan) VALUES ('${escapedTargetId}', 'test')`,
+    `INSERT INTO verification (id, identifier, value, expires_at, created_at, updated_at) VALUES ('admin-delete-verification', 'rungset-a@example.com', 'test-token', 9999999999, 1, 1)`,
+  ].join(';')]);
+
+  const overviewBeforeDelete = await admin.expect('/api/admin/overview', 200);
+  await admin.expect('/api/admin/users', 400, { method: 'DELETE', body: { userId: accountToDelete.id, confirmationEmail: 'wrong@example.com' } });
+  await admin.expect('/api/admin/users', 409, { method: 'DELETE', body: { userId: adminAccount.id, confirmationEmail: adminAccount.email } });
+  await userA.expect(`/api/notes/${noteA.id}`, 200);
+  await userA.expect(`/api/checkins/${retainedCheckInA.id}`, 200);
+
+  await admin.expect('/api/admin/users', 200, { method: 'DELETE', body: { userId: accountToDelete.id, confirmationEmail: accountToDelete.email } });
+  const overviewAfterDelete = await admin.expect('/api/admin/overview', 200);
+  assert.equal(overviewAfterDelete.users, overviewBeforeDelete.users - 1);
+  assert.equal(overviewAfterDelete.goals, overviewBeforeDelete.goals - accountToDelete.goals);
+  assert.equal(overviewAfterDelete.openTasks + overviewAfterDelete.completedTasks, overviewBeforeDelete.openTasks + overviewBeforeDelete.completedTasks - accountToDelete.tasks);
+  assert.equal(overviewAfterDelete.checkIns, overviewBeforeDelete.checkIns - accountToDelete.checkIns);
+  const usersAfterDelete = await admin.expect('/api/admin/users', 200);
+  assert.ok(!usersAfterDelete.users.some((account) => account.id === accountToDelete.id));
+  await userA.expect('/api/goals', 401);
+  const remainingData = queryDatabase(`SELECT
+    (SELECT count(*) FROM user WHERE id = '${escapedTargetId}') AS users,
+    (SELECT count(*) FROM session WHERE user_id = '${escapedTargetId}') AS sessions,
+    (SELECT count(*) FROM account WHERE user_id = '${escapedTargetId}') AS accounts,
+    (SELECT count(*) FROM verification WHERE id = 'admin-delete-verification') AS verifications,
+    (SELECT count(*) FROM subscriptions WHERE user_id = '${escapedTargetId}') AS subscriptions,
+    (SELECT count(*) FROM goals WHERE user_id = '${escapedTargetId}') AS goals,
+    (SELECT count(*) FROM milestones WHERE user_id = '${escapedTargetId}') AS milestones,
+    (SELECT count(*) FROM todos WHERE user_id = '${escapedTargetId}') AS tasks,
+    (SELECT count(*) FROM todo_occurrences WHERE id = '${deleteOccurrences[0].id}') AS occurrences,
+    (SELECT count(*) FROM check_ins WHERE user_id = '${escapedTargetId}') AS check_ins,
+    (SELECT count(*) FROM notes WHERE user_id = '${escapedTargetId}') AS notes`);
+  assert.deepEqual(remainingData[0], {
+    users: 0,
+    sessions: 0,
+    accounts: 0,
+    verifications: 0,
+    subscriptions: 0,
+    goals: 0,
+    milestones: 0,
+    tasks: 0,
+    occurrences: 0,
+    check_ins: 0,
+    notes: 0,
+  });
+
+  console.log('Authorization, preferences, relationships, recurring completion, history, and admin deletion integration tests passed.');
 } finally {
   if (worker) worker.kill('SIGTERM');
   await rm(persistDir, { recursive: true, force: true });
