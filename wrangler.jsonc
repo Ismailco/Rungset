@@ -8,21 +8,6 @@
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-10-07",
   "compatibility_flags": ["nodejs_compat"],
-  "routes": [
-    {
-      "pattern": "app.rungset.com",
-      "custom_domain": true,
-    },
-    // Legacy domains remain attached until DNS and redirect cutover is complete.
-    {
-      "pattern": "app.goalgenius.online",
-      "custom_domain": true,
-    },
-    {
-      "pattern": "www.app.goalgenius.online",
-      "custom_domain": true,
-    },
-  ],
   // Keep local Wrangler development on localhost instead of inheriting
   // the first custom-domain route as the upstream host.
   "dev": {
@@ -51,15 +36,15 @@
     },
   ],
   "vars": {
-    "NEXT_PUBLIC_APP_URL": "https://app.rungset.com",
-    "NEXT_PUBLIC_BETTER_AUTH_URL": "https://app.rungset.com",
+    "NEXT_PUBLIC_APP_URL": "https://rungset.rungset.workers.dev",
+    "NEXT_PUBLIC_BETTER_AUTH_URL": "https://rungset.rungset.workers.dev",
     "NEXT_PUBLIC_SITE_URL": "https://rungset.com",
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "goalgenius_db",
-      "database_id": "e235d926-15cb-4c3d-b275-3369774cf609",
+      "database_id": "ebe075ef-1bc3-47b4-8b7c-44b4ecd727be",
       "migrations_dir": "drizzle",
     },
   ],
