@@ -40,6 +40,7 @@
     "NEXT_PUBLIC_BETTER_AUTH_URL": "https://rungset.rungset.workers.dev",
     "NEXT_PUBLIC_SITE_URL": "https://rungset.com",
   },
+  // Rungset account deployment: use the target account database and workers.dev endpoint.
   "d1_databases": [
     {
       "binding": "DB",
