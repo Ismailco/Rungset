@@ -8,6 +8,8 @@
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-10-07",
   "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
   // Keep local Wrangler development on localhost instead of inheriting
   // the first custom-domain route as the upstream host.
   "dev": {
@@ -36,11 +38,12 @@
     },
   ],
   "vars": {
-    "NEXT_PUBLIC_APP_URL": "https://rungset.rungset.workers.dev",
-    "NEXT_PUBLIC_BETTER_AUTH_URL": "https://rungset.rungset.workers.dev",
+    "NEXT_PUBLIC_APP_URL": "https://app.rungset.com",
+    "NEXT_PUBLIC_BETTER_AUTH_URL": "https://app.rungset.com",
     "NEXT_PUBLIC_SITE_URL": "https://rungset.com",
+    "CLOUDFLARE_D1_ACCOUNT_ID": "b2f7feeeed860904b22d62de571088d7",
   },
-  // Rungset account deployment: use the target account database and workers.dev endpoint.
+  // Rungset account deployment: use the target account database and canonical custom domains.
   "d1_databases": [
     {
       "binding": "DB",
