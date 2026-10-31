@@ -56,15 +56,18 @@ export async function createTodoOccurrence(occurrence: {
   todoId: string;
   occurrenceDate: string;
   completedAt?: string;
-}): Promise<TodoOccurrence | null> {
+}): Promise<TodoOccurrence> {
   try {
-    if (isOnline()) {
-      return await apiRequest<TodoOccurrence>('todo-occurrences', 'POST', occurrence);
+    if (!isOnline()) {
+      throw new StorageError('Cannot record task occurrences while offline');
     }
-    return null;
+    return await apiRequest<TodoOccurrence>('todo-occurrences', 'POST', occurrence);
   } catch (error) {
     logError(error as Error, { operation: 'createTodoOccurrence' });
-    throw error;
+    if (error instanceof StorageError || error instanceof ValidationError) {
+      throw error;
+    }
+    throw new StorageError('Failed to create todo occurrence');
   }
 }
 

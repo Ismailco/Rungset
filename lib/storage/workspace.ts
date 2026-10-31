@@ -5,6 +5,7 @@ import { createMilestone } from './milestones';
 import { createTodo, createTodoOccurrence } from './todos';
 import { createNote } from './notes';
 import { createCheckIn } from './checkins';
+import { normalizeCheckInArray, unescapeData } from './cache';
 import { parseWorkspaceImport, type ImportSummary } from '../domain/workspace';
 
 export { parseWorkspaceImport, type ImportSummary };
@@ -28,7 +29,8 @@ export async function importWorkspaceData(raw: unknown): Promise<ImportSummary> 
   let occurrencesCount = 0;
   let failuresCount = 0;
 
-  for (const item of data.goals) {
+  for (const rawItem of data.goals) {
+    const item = unescapeData(rawItem as unknown as Record<string, unknown>) as unknown as typeof rawItem;
     if (!item.title) continue;
     try {
       const created = await createGoal({
@@ -38,7 +40,7 @@ export async function importWorkspaceData(raw: unknown): Promise<ImportSummary> 
         timeFrame: item.timeFrame ?? 'short-term',
         status: item.status ?? 'in-progress',
         progress: item.progress ?? 0,
-        dueDate: item.dueDate,
+        dueDate: item.dueDate || undefined,
       });
       if (item.id && created?.id) {
         goalIdMap.set(item.id, created.id);
@@ -50,7 +52,8 @@ export async function importWorkspaceData(raw: unknown): Promise<ImportSummary> 
     }
   }
 
-  for (const item of data.milestones) {
+  for (const rawItem of data.milestones) {
+    const item = unescapeData(rawItem as unknown as Record<string, unknown>) as unknown as typeof rawItem;
     if (!item.title || !item.date) continue;
     const targetGoalId = item.goalId ? goalIdMap.get(item.goalId) ?? item.goalId : '';
     if (!targetGoalId) {
@@ -76,7 +79,8 @@ export async function importWorkspaceData(raw: unknown): Promise<ImportSummary> 
     }
   }
 
-  for (const item of data.tasks) {
+  for (const rawItem of data.tasks) {
+    const item = unescapeData(rawItem as unknown as Record<string, unknown>) as unknown as typeof rawItem;
     if (!item.title) continue;
     const targetGoalId = item.goalId ? goalIdMap.get(item.goalId) ?? item.goalId : undefined;
     const targetMilestoneId = item.milestoneId ? milestoneIdMap.get(item.milestoneId) ?? item.milestoneId : undefined;
@@ -86,8 +90,8 @@ export async function importWorkspaceData(raw: unknown): Promise<ImportSummary> 
         title: item.title,
         description: item.description ?? '',
         priority: item.priority ?? 'medium',
-        dueDate: item.dueDate,
-        category: item.category,
+        dueDate: item.dueDate || undefined,
+        category: item.category || undefined,
         completed: Boolean(item.completed),
         recurrence: item.recurrence ?? 'none',
         reminder: item.reminder ?? 'none',
@@ -109,25 +113,30 @@ export async function importWorkspaceData(raw: unknown): Promise<ImportSummary> 
     const targetTodoId = taskIdMap.get(item.todoId) ?? item.todoId;
 
     try {
-      await createTodoOccurrence({
+      const created = await createTodoOccurrence({
         todoId: targetTodoId,
         occurrenceDate: item.occurrenceDate,
         completedAt: item.completedAt ? String(item.completedAt) : undefined,
       });
-      occurrencesCount++;
+      if (created) {
+        occurrencesCount++;
+      } else {
+        failuresCount++;
+      }
     } catch (e) {
       failuresCount++;
       console.error('Failed to import task occurrence:', item, e);
     }
   }
 
-  for (const item of data.notes) {
+  for (const rawItem of data.notes) {
+    const item = unescapeData(rawItem as unknown as Record<string, unknown>) as unknown as typeof rawItem;
     if (!item.title || !item.content) continue;
     try {
       await createNote({
         title: item.title,
         content: item.content,
-        category: item.category,
+        category: item.category || undefined,
         isPinned: Boolean(item.isPinned),
       });
       notesCount++;
@@ -137,7 +146,8 @@ export async function importWorkspaceData(raw: unknown): Promise<ImportSummary> 
     }
   }
 
-  for (const item of data.checkIns) {
+  for (const rawItem of data.checkIns) {
+    const item = unescapeData(rawItem as unknown as Record<string, unknown>) as unknown as typeof rawItem;
     if (!item.date || !item.mood || !item.energy) continue;
     const targetGoalId = item.goalId ? goalIdMap.get(item.goalId) ?? item.goalId : undefined;
 
@@ -147,10 +157,10 @@ export async function importWorkspaceData(raw: unknown): Promise<ImportSummary> 
         date: item.date,
         mood: item.mood,
         energy: item.energy,
-        accomplishments: Array.isArray(item.accomplishments) ? item.accomplishments : [],
-        challenges: Array.isArray(item.challenges) ? item.challenges : [],
-        goals: Array.isArray(item.goals) ? item.goals : [],
-        notes: item.notes,
+        accomplishments: normalizeCheckInArray(rawItem.accomplishments as string[] | string | undefined),
+        challenges: normalizeCheckInArray(rawItem.challenges as string[] | string | undefined),
+        goals: normalizeCheckInArray(rawItem.goals as string[] | string | undefined),
+        notes: item.notes || undefined,
       });
       checkInsCount++;
     } catch (e) {

@@ -59,7 +59,7 @@ export function getGoalProgress(
     if (todo.recurrence === 'none') return false;
     if (!today) return false;
 
-    if (occurrences && occurrences.length > 0) {
+    if (Array.isArray(occurrences)) {
       return occurrences.some((occ) => occ.todoId === todo.id && occ.occurrenceDate === today);
     }
 

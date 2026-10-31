@@ -78,6 +78,7 @@ const recurringOccurrences: TodoOccurrence[] = [
   { id: 'occ-1', todoId: 'r1', occurrenceDate: '2026-09-26', completedAt: '2026-09-26T12:00:00.000Z', createdAt: '2026-09-26T12:00:00.000Z' },
 ];
 assert.equal(getGoalProgress(recurringGoal, [], [recurringTask], { today: '2026-09-26', occurrences: recurringOccurrences }), 100);
+assert.equal(getGoalProgress(recurringGoal, [], [recurringTask], { today: '2026-09-26', occurrences: [] }), 0);
 
 // A newly scheduled future recurring task without occurrences should not be counted as completed
 const futureUncompletedTask: Todo = {
