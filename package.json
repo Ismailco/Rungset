@@ -1,6 +1,6 @@
 {
   "name": "rungset",
-  "version": "0.1.1-beta",
+  "version": "0.1.1-beta ",
   "private": true,
   "packageManager": "pnpm@12.16.1",
   "scripts": {
