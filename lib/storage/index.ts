@@ -16,6 +16,7 @@ export {
 export { createNote, deleteNote, getNote, getNotes, updateNote } from './notes';
 export {
   createTodo,
+  createTodoOccurrence,
   deleteTodo,
   getTodo,
   getTodoOccurrences,
@@ -31,6 +32,11 @@ export {
   getCheckIns,
   updateCheckIn,
 } from './checkins';
-export { getWorkspaceExport } from './workspace';
+export {
+  getWorkspaceExport,
+  importWorkspaceData,
+  parseWorkspaceImport,
+  type ImportSummary,
+} from './workspace';
 export { syncPendingChanges, syncWorkspaceData } from './sync';
 export type { WorkspaceExport } from './types';

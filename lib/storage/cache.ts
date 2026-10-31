@@ -39,12 +39,19 @@ export const unescapeData = <T extends Record<string, unknown>>(data: T): T => {
 
 export function normalizeCheckInArray(value: string[] | string | undefined | null): string[] {
   if (!value) return [];
-  if (Array.isArray(value)) return value;
+  if (Array.isArray(value)) {
+    return value.map((item) => (typeof item === 'string' ? validator.unescape(item) : item));
+  }
 
   try {
-    const parsed: unknown = JSON.parse(validator.unescape(value));
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      parsed = JSON.parse(validator.unescape(value));
+    }
     return Array.isArray(parsed) && parsed.every((item): item is string => typeof item === 'string')
-      ? parsed
+      ? parsed.map((item) => validator.unescape(item))
       : [];
   } catch {
     return [];

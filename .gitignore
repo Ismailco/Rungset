@@ -2,13 +2,11 @@
 
 # dependencies
 /node_modules
-/.pnp
-.pnp.js
-.yarn/install-state.gz
+/.pnpm-store
 
 # testing
 /coverage
-/test-results
+/test-results/
 
 # next.js
 /.next/
@@ -25,6 +23,7 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.pnpm-debug.log*
 
 # local env files
 .env
@@ -50,3 +49,5 @@ next-env.d.ts
 .secrets.production.env
 
 QA_REPORT.md
+
+skills/

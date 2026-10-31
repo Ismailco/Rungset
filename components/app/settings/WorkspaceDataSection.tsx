@@ -1,4 +1,5 @@
-import { Database, Download, ShieldCheck, Trash2 } from 'lucide-react';
+import { useRef } from 'react';
+import { Database, Download, ShieldCheck, Trash2, Upload } from 'lucide-react';
 import { AppPanel } from '@/components/app/shared/AppPage';
 import LoadingSpinner from '@/components/common/LoadingSpinner';
 import type { WorkspaceCounts } from './types';
@@ -20,21 +21,35 @@ export function WorkspaceDataSection({
   counts,
   totalItems,
   isExporting,
+  isImporting,
   isClearingCache,
   isResettingData,
   onExportWorkspace,
+  onImportWorkspace,
   onRequestClearLocalCache,
   onRequestWorkspaceReset,
 }: {
   counts: WorkspaceCounts;
   totalItems: number;
   isExporting: boolean;
+  isImporting: boolean;
   isClearingCache: boolean;
   isResettingData: boolean;
   onExportWorkspace: () => void;
+  onImportWorkspace: (file: File) => void;
   onRequestClearLocalCache: () => void;
   onRequestWorkspaceReset: () => void;
 }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      onImportWorkspace(file);
+      event.target.value = '';
+    }
+  };
+
   return (
     <AppPanel className="p-6">
       <div className="mb-6 flex items-center gap-3">
@@ -44,7 +59,7 @@ export function WorkspaceDataSection({
         <div>
           <h2 className="text-xl font-semibold text-white">Workspace data</h2>
           <p className="text-sm text-[var(--text-secondary)]">
-            Export, clear local caches, or reset all tracked items.
+            Export, import, clear local caches, or reset all tracked items.
           </p>
         </div>
       </div>
@@ -64,7 +79,16 @@ export function WorkspaceDataSection({
         </p>
       </div>
 
-      <div className="mt-6 grid gap-3 md:grid-cols-2">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        onChange={handleFileChange}
+        aria-label="Upload data file to import"
+      />
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-2">
         <button
           type="button"
           onClick={onExportWorkspace}
@@ -72,7 +96,17 @@ export function WorkspaceDataSection({
           className="app-button disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isExporting ? <LoadingSpinner size="small" /> : <Download className="h-4 w-4" />}
-          Export JSON
+          Export Data
+        </button>
+
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isImporting}
+          className="app-button-secondary disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isImporting ? <LoadingSpinner size="small" /> : <Upload className="h-4 w-4" />}
+          Import Data
         </button>
 
         <button
@@ -89,7 +123,7 @@ export function WorkspaceDataSection({
           type="button"
           onClick={onRequestWorkspaceReset}
           disabled={isResettingData}
-          className="app-button-danger md:col-span-2 disabled:cursor-not-allowed disabled:opacity-60"
+          className="app-button-danger disabled:cursor-not-allowed disabled:opacity-60 sm:col-span-2"
         >
           {isResettingData ? <LoadingSpinner size="small" /> : <Trash2 className="h-4 w-4" />}
           Reset workspace

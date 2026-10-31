@@ -52,6 +52,25 @@ export async function getTodoOccurrences(): Promise<TodoOccurrence[]> {
   }
 }
 
+export async function createTodoOccurrence(occurrence: {
+  todoId: string;
+  occurrenceDate: string;
+  completedAt?: string;
+}): Promise<TodoOccurrence> {
+  try {
+    if (!isOnline()) {
+      throw new StorageError('Cannot record task occurrences while offline');
+    }
+    return await apiRequest<TodoOccurrence>('todo-occurrences', 'POST', occurrence);
+  } catch (error) {
+    logError(error as Error, { operation: 'createTodoOccurrence' });
+    if (error instanceof StorageError || error instanceof ValidationError) {
+      throw error;
+    }
+    throw new StorageError('Failed to create todo occurrence');
+  }
+}
+
 export async function getTodo(id: string): Promise<Todo | null> {
   try {
     const todos = await getTodos();
@@ -67,7 +86,9 @@ export async function getTodo(id: string): Promise<Todo | null> {
   }
 }
 
-export async function createTodo(todo: Omit<Todo, 'id' | 'createdAt' | 'updatedAt' | 'completed'>): Promise<Todo> {
+export async function createTodo(
+  todo: Omit<Todo, 'id' | 'createdAt' | 'updatedAt' | 'completed'> & { completed?: boolean },
+): Promise<Todo> {
   try {
     const sanitizedTodo = sanitizeData(todo);
 
@@ -81,12 +102,14 @@ export async function createTodo(todo: Omit<Todo, 'id' | 'createdAt' | 'updatedA
       throw new ValidationError('Invalid priority level');
     }
 
+    const completed = Boolean(sanitizedTodo.completed);
+
       if (isOnline()) {
         try {
         await syncPendingChanges();
         const newTodo = await apiRequest<Todo>('todos', 'POST', {
           ...sanitizedTodo,
-          completed: false
+          completed,
         });
         addCachedRecord(STORAGE_KEYS.TODOS, userId, newTodo);
         return unescapeData(newTodo as unknown as Record<string, unknown>) as unknown as Todo;
@@ -105,7 +128,7 @@ export async function createTodo(todo: Omit<Todo, 'id' | 'createdAt' | 'updatedA
       const newTodo = {
         ...sanitizedTodo,
         id: createClientId('temp_todo'),
-        completed: false,
+        completed,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
@@ -116,7 +139,7 @@ export async function createTodo(todo: Omit<Todo, 'id' | 'createdAt' | 'updatedA
         entityId: newTodo.id,
         body: {
           ...sanitizedTodo,
-          completed: false,
+          completed,
         },
       });
       return unescapeData(newTodo as unknown as Record<string, unknown>) as unknown as Todo;

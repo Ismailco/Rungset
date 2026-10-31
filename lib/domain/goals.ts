@@ -1,9 +1,14 @@
-import type { Goal, Milestone, Todo } from '../../app/types/index.ts';
-import { calculateGoalProgress } from './progress.ts';
+import type { Goal, Milestone, Todo, TodoOccurrence } from '../../app/types/index.ts';
+import { calculateGoalProgress, type MilestoneProgressInput } from './progress.ts';
 
 export interface MilestoneTaskCount {
   completed: number;
   total: number;
+}
+
+export interface GoalProgressContext {
+  today?: string;
+  occurrences?: TodoOccurrence[];
 }
 
 const GOAL_STATUS_ORDER: Record<Goal['status'], number> = {
@@ -34,22 +39,64 @@ export function getNextMilestone(goalId: string, milestones: Milestone[]): Miles
     .map(({ milestone }) => milestone)[0] ?? null;
 }
 
-export function getGoalProgress(goal: Goal, milestones: Milestone[], todos: Todo[]): number {
+export function getGoalProgress(
+  goal: Goal,
+  milestones: Milestone[],
+  todos: Todo[],
+  context?: string | GoalProgressContext,
+): number {
+  if (goal.status === 'completed') return 100;
+
+  const today = typeof context === 'string' ? context : context?.today;
+  const occurrences = typeof context === 'object' ? context?.occurrences : undefined;
+
   const goalMilestones = milestones.filter((milestone) => milestone.goalId === goal.id);
   const milestoneIds = new Set(goalMilestones.map((milestone) => milestone.id));
   const goalTodos = todos.filter((todo) => todo.goalId === goal.id || (todo.milestoneId ? milestoneIds.has(todo.milestoneId) : false));
 
-  return calculateGoalProgress(
-    goalMilestones.map((milestone) => {
-      const milestoneTasks = goalTodos.filter((todo) => todo.milestoneId === milestone.id);
-      return {
-        completed: milestone.completed,
-        tasksCompleted: milestoneTasks.filter((todo) => todo.completed).length,
-        tasksTotal: milestoneTasks.length,
-      };
-    }),
-    goal.status,
-  );
+  const isTaskDone = (todo: Todo) => {
+    if (todo.completed) return true;
+    if (todo.recurrence === 'none') return false;
+    if (!today) return false;
+
+    if (Array.isArray(occurrences)) {
+      return occurrences.some((occ) => occ.todoId === todo.id && occ.occurrenceDate === today);
+    }
+
+    const createdDate = todo.createdAt ? todo.createdAt.slice(0, 10) : '';
+    const updatedDate = todo.updatedAt ? todo.updatedAt.slice(0, 10) : '';
+    const hasBeenUpdated = Boolean(todo.updatedAt && todo.createdAt && todo.updatedAt !== todo.createdAt);
+
+    return Boolean(
+      todo.dueDate &&
+      todo.dueDate > today &&
+      (hasBeenUpdated || (createdDate && createdDate < today)) &&
+      updatedDate === today,
+    );
+  };
+
+  const standaloneTasks = goalTodos.filter((todo) => !todo.milestoneId || !milestoneIds.has(todo.milestoneId));
+
+  const milestoneInputs: MilestoneProgressInput[] = goalMilestones.map((milestone) => {
+    const milestoneTasks = goalTodos.filter((todo) => todo.milestoneId === milestone.id);
+    return {
+      completed: milestone.completed,
+      tasksCompleted: milestoneTasks.filter(isTaskDone).length,
+      tasksTotal: milestoneTasks.length,
+    };
+  });
+
+  if (standaloneTasks.length > 0) {
+    milestoneInputs.push({
+      completed: false,
+      tasksCompleted: standaloneTasks.filter(isTaskDone).length,
+      tasksTotal: standaloneTasks.length,
+    });
+  }
+
+  if (milestoneInputs.length === 0) return 0;
+
+  return calculateGoalProgress(milestoneInputs, goal.status);
 }
 
 export function getMilestoneTaskCounts(milestones: Milestone[], todos: Todo[]): Map<string, MilestoneTaskCount> {

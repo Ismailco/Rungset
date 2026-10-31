@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import type { CheckIn, Goal, Milestone, Todo } from '../app/types/index.ts';
+import type { CheckIn, Goal, Milestone, Todo, TodoOccurrence } from '../app/types/index.ts';
 import { getGoalProgress, getMilestoneTaskCounts, getNextMilestone, sortGoalsForOverview } from '../lib/domain/goals.ts';
 import { getCheckInActivityWeeks, getLatestGoalCheckIn, groupCheckInsByDate, sortCheckInsDescending } from '../lib/domain/checkins.ts';
 import { getTodoDueBucket, matchesTodoFilters, resolveTodoGoalId, sortTodosByActionability } from '../lib/domain/todos.ts';
@@ -47,6 +47,55 @@ assert.equal(getNextMilestone('complete-only', [{ ...milestones[0], goalId: 'com
 
 assert.equal(getGoalProgress(goal({ id: 'active-sooner' }), [milestones[0], milestones[2]], []), 50);
 assert.equal(getGoalProgress(goal({ id: 'complete', status: 'completed' }), [], []), 100);
+
+const standaloneGoal = goal({ id: 'standalone-goal' });
+const standaloneTasks: Todo[] = [
+  { id: 't1', goalId: 'standalone-goal', milestoneId: null, title: 'T1', completed: true, priority: 'medium', recurrence: 'none', reminder: 'none', createdAt: timestamps.createdAt, updatedAt: timestamps.updatedAt },
+  { id: 't2', goalId: 'standalone-goal', milestoneId: null, title: 'T2', completed: false, priority: 'medium', recurrence: 'none', reminder: 'none', createdAt: timestamps.createdAt, updatedAt: timestamps.updatedAt },
+];
+assert.equal(getGoalProgress(standaloneGoal, [], standaloneTasks), 50);
+assert.equal(getGoalProgress(standaloneGoal, [], [standaloneTasks[0]]), 100);
+
+const recurringGoal = goal({ id: 'recurring-goal' });
+const recurringTask: Todo = {
+  id: 'r1',
+  goalId: 'recurring-goal',
+  milestoneId: null,
+  title: 'R1',
+  completed: false,
+  priority: 'medium',
+  recurrence: 'daily',
+  reminder: 'none',
+  dueDate: '2026-09-27',
+  createdAt: timestamps.createdAt,
+  updatedAt: '2026-09-26T12:00:00.000Z',
+};
+// Completed today via fallback heuristic (updated today, created earlier)
+assert.equal(getGoalProgress(recurringGoal, [], [recurringTask], '2026-09-26'), 100);
+
+// Completed today via explicit occurrences
+const recurringOccurrences: TodoOccurrence[] = [
+  { id: 'occ-1', todoId: 'r1', occurrenceDate: '2026-09-26', completedAt: '2026-09-26T12:00:00.000Z', createdAt: '2026-09-26T12:00:00.000Z' },
+];
+assert.equal(getGoalProgress(recurringGoal, [], [recurringTask], { today: '2026-09-26', occurrences: recurringOccurrences }), 100);
+assert.equal(getGoalProgress(recurringGoal, [], [recurringTask], { today: '2026-09-26', occurrences: [] }), 0);
+
+// A newly scheduled future recurring task without occurrences should not be counted as completed
+const futureUncompletedTask: Todo = {
+  id: 'r2',
+  goalId: 'recurring-goal',
+  milestoneId: null,
+  title: 'R2',
+  completed: false,
+  priority: 'medium',
+  recurrence: 'daily',
+  reminder: 'none',
+  dueDate: '2026-09-27',
+  createdAt: '2026-09-26T10:00:00.000Z',
+  updatedAt: '2026-09-26T10:00:00.000Z',
+};
+assert.equal(getGoalProgress(recurringGoal, [], [futureUncompletedTask], '2026-09-26'), 0);
+assert.equal(getGoalProgress(recurringGoal, [], [futureUncompletedTask], { today: '2026-09-26', occurrences: [] }), 0);
 
 const todoBase: Omit<Todo, 'id' | 'title' | 'completed' | 'dueDate' | 'priority'> = {
   goalId: 'active-sooner',

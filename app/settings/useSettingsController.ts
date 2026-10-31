@@ -27,6 +27,7 @@ import {
   getNotes,
   getTodos,
   getWorkspaceExport,
+  importWorkspaceData,
 } from '@/lib/storage';
 import { WORKSPACE_SYNC_EVENT } from '@/lib/workspace-sync-events';
 import type {
@@ -54,6 +55,7 @@ export function useSettingsController() {
   const [counts, setCounts] = useState<WorkspaceCounts>(EMPTY_COUNTS);
   const [isOnline, setIsOnline] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [isCaching, setIsCaching] = useState(false);
   const [isClearingCache, setIsClearingCache] = useState(false);
   const [isResettingData, setIsResettingData] = useState(false);
@@ -136,6 +138,11 @@ export function useSettingsController() {
     setSettings(nextSettings);
   }
 
+  function handleSidebarCollapsedChange(collapsed: boolean) {
+    writeSidebarCollapsed(collapsed);
+    setSidebarCollapsed(collapsed);
+  }
+
   function downloadJsonFile(filename: string, data: unknown) {
     const blob = new Blob([JSON.stringify(data, null, 2)], {
       type: 'application/json',
@@ -162,7 +169,7 @@ export function useSettingsController() {
       setAlert({
         show: true,
         title: 'Export ready',
-        message: 'Your workspace JSON has been downloaded.',
+        message: 'Your workspace data has been downloaded.',
         type: 'success',
       });
     } catch (error) {
@@ -175,6 +182,76 @@ export function useSettingsController() {
       });
     } finally {
       setIsExporting(false);
+    }
+  }
+
+  async function handleImportWorkspace(file: File) {
+    setIsImporting(true);
+
+    try {
+      const text = await file.text();
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        setAlert({
+          show: true,
+          title: 'Import failed',
+          message: 'The selected file is not valid JSON.',
+          type: 'error',
+        });
+        return;
+      }
+
+      const summary = await importWorkspaceData(parsed);
+      await loadWorkspaceCounts();
+
+      window.dispatchEvent(new CustomEvent(WORKSPACE_SYNC_EVENT));
+
+      const parts = [
+        summary.goals > 0 ? `${summary.goals} goals` : null,
+        summary.milestones > 0 ? `${summary.milestones} milestones` : null,
+        summary.tasks > 0 ? `${summary.tasks} tasks` : null,
+        summary.notes > 0 ? `${summary.notes} notes` : null,
+        summary.checkIns > 0 ? `${summary.checkIns} check-ins` : null,
+        summary.taskOccurrences > 0 ? `${summary.taskOccurrences} history records` : null,
+      ].filter(Boolean);
+
+      const countDetails = parts.length > 0 ? parts.join(', ') : '0 items';
+      const totalImported = summary.goals + summary.milestones + summary.tasks + summary.notes + summary.checkIns + summary.taskOccurrences;
+
+      if (summary.failures > 0 && totalImported === 0) {
+        setAlert({
+          show: true,
+          title: 'Import failed',
+          message: 'None of the items could be imported. Please verify the file data.',
+          type: 'error',
+        });
+      } else if (summary.failures > 0) {
+        setAlert({
+          show: true,
+          title: 'Import completed with warnings',
+          message: `Imported ${countDetails}, but ${summary.failures} item(s) could not be imported.`,
+          type: 'warning',
+        });
+      } else {
+        setAlert({
+          show: true,
+          title: 'Data imported',
+          message: `Successfully imported ${countDetails} into your workspace.`,
+          type: 'success',
+        });
+      }
+    } catch (error) {
+      console.error('Error importing workspace:', error);
+      setAlert({
+        show: true,
+        title: 'Import failed',
+        message: 'The workspace data could not be imported.',
+        type: 'error',
+      });
+    } finally {
+      setIsImporting(false);
     }
   }
 
@@ -324,17 +401,11 @@ export function useSettingsController() {
           ? 'Blocked'
           : 'Not enabled';
 
-
-  function handleSidebarCollapsedChange(checked: boolean) {
-    setSidebarCollapsed(checked);
-    writeSidebarCollapsed(checked);
-  }
-
   function requestClearLocalCache() {
     setAlert({
       show: true,
-      title: 'Clear local cache?',
-      message: 'This removes cached workspace data and offline page caches on this device only.',
+      title: 'Clear local app cache?',
+      message: 'This will remove offline and cached workspace records from this browser. Your server data is safe.',
       type: 'warning',
       isConfirmation: true,
       onConfirm: () => {
@@ -367,11 +438,13 @@ export function useSettingsController() {
     handleCacheWorkspace,
     handleEnableNotifications,
     handleExportWorkspace,
+    handleImportWorkspace,
     handleSignOut,
     handleSidebarCollapsedChange,
     isCaching,
     isClearingCache,
     isExporting,
+    isImporting,
     isOnline,
     isResettingData,
     notificationPermission,

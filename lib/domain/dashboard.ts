@@ -2,7 +2,7 @@ import { differenceInCalendarDays } from 'date-fns';
 import type { CheckIn, Goal, Milestone, Todo } from '../../app/types/index.ts';
 import { getLatestGoalCheckIn } from './checkins.ts';
 import { parseDateOnly } from './date-only.ts';
-import { getGoalProgress, getNextMilestone, sortGoalsForOverview } from './goals.ts';
+import { getGoalProgress, getNextMilestone, sortGoalsForOverview, type GoalProgressContext } from './goals.ts';
 import { sortTodosByActionability } from './todos.ts';
 
 export const CHECK_IN_STALE_DAYS = 7;
@@ -33,13 +33,14 @@ function sortTodosForToday(todos: Todo[], today: string): Todo[] {
   return sortTodosByActionability(todos, today);
 }
 
-export { getGoalProgress, getNextMilestone } from './goals.ts';
+export { getGoalProgress, getNextMilestone, type GoalProgressContext } from './goals.ts';
 
 export function getDashboardGoals(
   goals: Goal[],
   milestones: Milestone[],
   todos: Todo[],
   limit = 3,
+  context?: string | GoalProgressContext,
 ): DashboardGoalSummary[] {
   return sortGoalsForOverview(goals.filter((goal) => goal.status !== 'completed'))
     .slice(0, limit)
@@ -47,12 +48,15 @@ export function getDashboardGoals(
       goal,
       hasMilestones: milestones.some((milestone) => milestone.goalId === goal.id),
       nextMilestone: getNextMilestone(goal.id, milestones),
-      progress: getGoalProgress(goal, milestones, todos),
+      progress: getGoalProgress(goal, milestones, todos, context),
     }));
 }
 
 export function selectNextTask(todos: Todo[], today: string): Todo | null {
-  return sortTodosForToday(todos.filter((todo) => !todo.completed), today)[0] ?? null;
+  return sortTodosForToday(
+    todos.filter((todo) => !todo.completed && todo.dueDate === today),
+    today,
+  )[0] ?? null;
 }
 
 export function getGoalsNeedingCheckIn(
@@ -75,45 +79,21 @@ export function getGoalsNeedingCheckIn(
     );
 }
 
-function sortUpcomingTasks(tasks: Todo[]): Todo[] {
-  return sortTodosByActionability(tasks, '9999-12-31');
+function sortUpcomingTasks(tasks: Todo[], today: string): Todo[] {
+  return sortTodosByActionability(tasks, today);
 }
 
 export function groupUpcomingTasks(
   todos: Todo[],
   today: string,
   maxTotal = UPCOMING_TASK_LIMIT,
-  nextHorizonDays = UPCOMING_NEXT_HORIZON_DAYS,
 ): UpcomingTaskGroup[] {
-  const openTasks = todos.filter((todo) => !todo.completed);
-  const overdue = sortUpcomingTasks(openTasks.filter((todo) => todo.dueDate && todo.dueDate < today));
-  const todayTasks = sortUpcomingTasks(openTasks.filter((todo) => todo.dueDate === today));
-  const nextDated = sortUpcomingTasks(openTasks.filter((todo) => {
-    if (!todo.dueDate || todo.dueDate <= today) return false;
-    const daysAway = differenceInCalendarDays(parseDateOnly(todo.dueDate), parseDateOnly(today));
-    return daysAway <= nextHorizonDays;
-  }));
-  const undated = sortUpcomingTasks(openTasks.filter((todo) => !todo.dueDate));
+  const todayTasks = sortUpcomingTasks(
+    todos.filter((todo) => !todo.completed && todo.dueDate === today),
+    today,
+  ).slice(0, maxTotal);
 
-  const groups: UpcomingTaskGroup[] = [];
-  let remaining = maxTotal;
+  if (todayTasks.length === 0) return [];
 
-  const overdueTasks = overdue.slice(0, Math.min(3, remaining));
-  if (overdueTasks.length > 0) {
-    groups.push({ name: 'overdue', tasks: overdueTasks });
-    remaining -= overdueTasks.length;
-  }
-
-  const todayTasksToShow = todayTasks.slice(0, Math.min(3, remaining));
-  if (todayTasksToShow.length > 0) {
-    groups.push({ name: 'today', tasks: todayTasksToShow });
-    remaining -= todayTasksToShow.length;
-  }
-
-  if (remaining > 0) {
-    const nextTasks = [...nextDated, ...undated].slice(0, remaining);
-    if (nextTasks.length > 0) groups.push({ name: 'next', tasks: nextTasks });
-  }
-
-  return groups;
+  return [{ name: 'today', tasks: todayTasks }];
 }

@@ -37,7 +37,7 @@ export default function UpcomingTasks({ groups, goalsById, onToggle, pendingTodo
   return (
     <section aria-labelledby="today-upcoming-heading">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h2 id="today-upcoming-heading" className="text-lg font-semibold text-[var(--text-primary)]">Upcoming</h2>
+        <h2 id="today-upcoming-heading" className="text-lg font-semibold text-[var(--text-primary)]">Today&apos;s tasks</h2>
         <Link href="/todos" prefetch={false} className="app-button-ghost app-button-sm">
           View all tasks <ArrowRight className="h-4 w-4" aria-hidden="true" />
         </Link>
@@ -45,7 +45,7 @@ export default function UpcomingTasks({ groups, goalsById, onToggle, pendingTodo
 
       {groups.length === 0 ? (
         <div className="app-empty-state mt-3 p-5">
-          <p className="text-sm text-[var(--text-secondary)]">No upcoming tasks.</p>
+          <p className="text-sm text-[var(--text-secondary)]">No tasks for today.</p>
         </div>
       ) : (
         <div className="mt-3 space-y-4">

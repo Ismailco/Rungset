@@ -59,9 +59,11 @@ export default function SettingsPage() {
           counts={settings.counts}
           totalItems={settings.totalItems}
           isExporting={settings.isExporting}
+          isImporting={settings.isImporting}
           isClearingCache={settings.isClearingCache}
           isResettingData={settings.isResettingData}
           onExportWorkspace={settings.handleExportWorkspace}
+          onImportWorkspace={settings.handleImportWorkspace}
           onRequestClearLocalCache={settings.onRequestClearLocalCache}
           onRequestWorkspaceReset={settings.onRequestWorkspaceReset}
         />

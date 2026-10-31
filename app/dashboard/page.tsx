@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { CheckIn, Goal, Milestone, Todo } from '@/app/types';
+import type { CheckIn, Goal, Milestone, Todo, TodoOccurrence } from '@/app/types';
 import CreateCheckInModal from '@/components/app/checkins/CreateCheckInModal';
 import CreateGoalModal from '@/components/app/dashboard/CreateGoalModal';
 import DashboardGoals from '@/components/app/dashboard/DashboardGoals';
@@ -21,10 +21,12 @@ import {
   type DashboardReviewGoal,
 } from '@/lib/domain/dashboard';
 import { todayDateOnly } from '@/lib/domain/date-only';
+import { resolveTodoGoalId } from '@/lib/domain/todos';
 import {
   getCheckIns,
   getGoals,
   getMilestones,
+  getTodoOccurrences,
   getTodos,
   toggleTodoComplete,
 } from '@/lib/storage';
@@ -39,6 +41,7 @@ export default function DashboardPage() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
+  const [occurrences, setOccurrences] = useState<TodoOccurrence[]>([]);
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
   const [pendingTodoId, setPendingTodoId] = useState<string | null>(null);
   const [isTodoModalOpen, setIsTodoModalOpen] = useState(false);
@@ -50,17 +53,19 @@ export default function DashboardPage() {
     setToday(todayDateOnly());
 
     try {
-      const [loadedGoals, loadedMilestones, loadedTodos, loadedCheckIns] = await Promise.all([
+      const [loadedGoals, loadedMilestones, loadedTodos, loadedCheckIns, loadedOccurrences] = await Promise.all([
         getGoals(),
         getMilestones(),
         getTodos(),
         getCheckIns(),
+        getTodoOccurrences(),
       ]);
 
       setGoals(loadedGoals);
       setMilestones(loadedMilestones);
       setTodos(loadedTodos);
       setCheckIns(loadedCheckIns);
+      setOccurrences(loadedOccurrences);
     } catch {
       setError('Today could not load your workspace. Try again.');
     } finally {
@@ -84,15 +89,24 @@ export default function DashboardPage() {
     () => new Map(milestones.map((milestone) => [milestone.id, milestone])),
     [milestones],
   );
+  const progressContext = useMemo(
+    () => ({ today, occurrences }),
+    [today, occurrences],
+  );
   const nextTask = today ? selectNextTask(todos, today) : null;
-  const nextTaskGoal = nextTask?.goalId ? goalsById.get(nextTask.goalId) ?? null : null;
+  const effectiveGoalId = nextTask
+    ? resolveTodoGoalId(nextTask, milestonesById)
+    : null;
+  const nextTaskGoal = effectiveGoalId
+    ? goalsById.get(effectiveGoalId) ?? null
+    : null;
   const nextTaskMilestone = nextTask?.milestoneId
     ? milestonesById.get(nextTask.milestoneId) ?? null
     : null;
   const nextTaskProgress = nextTaskGoal
-    ? getGoalProgress(nextTaskGoal, milestones, todos)
+    ? getGoalProgress(nextTaskGoal, milestones, todos, progressContext)
     : null;
-  const dashboardGoals = getDashboardGoals(goals, milestones, todos);
+  const dashboardGoals = getDashboardGoals(goals, milestones, todos, 3, progressContext);
   const reviewGoals = today ? getGoalsNeedingCheckIn(goals, checkIns, today) : [];
   const upcomingGroups = today ? groupUpcomingTasks(todos, today) : [];
   const activeGoalCount = goals.filter((goal) => goal.status !== 'completed').length;
