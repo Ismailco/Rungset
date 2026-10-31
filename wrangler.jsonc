@@ -54,12 +54,13 @@
     "NEXT_PUBLIC_APP_URL": "https://app.rungset.com",
     "NEXT_PUBLIC_BETTER_AUTH_URL": "https://app.rungset.com",
     "NEXT_PUBLIC_SITE_URL": "https://rungset.com",
+    "CLOUDFLARE_D1_ACCOUNT_ID": "b2f7feeeed860904b22d62de571088d7",
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "goalgenius_db",
-      "database_id": "e235d926-15cb-4c3d-b275-3369774cf609",
+      "database_id": "ebe075ef-1bc3-47b4-8b7c-44b4ecd727be",
       "migrations_dir": "drizzle",
     },
   ],
