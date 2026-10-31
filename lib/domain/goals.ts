@@ -1,9 +1,14 @@
-import type { Goal, Milestone, Todo } from '../../app/types/index.ts';
+import type { Goal, Milestone, Todo, TodoOccurrence } from '../../app/types/index.ts';
 import { calculateGoalProgress, type MilestoneProgressInput } from './progress.ts';
 
 export interface MilestoneTaskCount {
   completed: number;
   total: number;
+}
+
+export interface GoalProgressContext {
+  today?: string;
+  occurrences?: TodoOccurrence[];
 }
 
 const GOAL_STATUS_ORDER: Record<Goal['status'], number> = {
@@ -38,16 +43,37 @@ export function getGoalProgress(
   goal: Goal,
   milestones: Milestone[],
   todos: Todo[],
-  today?: string,
+  context?: string | GoalProgressContext,
 ): number {
   if (goal.status === 'completed') return 100;
+
+  const today = typeof context === 'string' ? context : context?.today;
+  const occurrences = typeof context === 'object' ? context?.occurrences : undefined;
 
   const goalMilestones = milestones.filter((milestone) => milestone.goalId === goal.id);
   const milestoneIds = new Set(goalMilestones.map((milestone) => milestone.id));
   const goalTodos = todos.filter((todo) => todo.goalId === goal.id || (todo.milestoneId ? milestoneIds.has(todo.milestoneId) : false));
 
-  const isTaskDone = (todo: Todo) =>
-    todo.completed || Boolean(today && todo.recurrence !== 'none' && todo.dueDate && todo.dueDate > today);
+  const isTaskDone = (todo: Todo) => {
+    if (todo.completed) return true;
+    if (todo.recurrence === 'none') return false;
+    if (!today) return false;
+
+    if (occurrences && occurrences.length > 0) {
+      return occurrences.some((occ) => occ.todoId === todo.id && occ.occurrenceDate === today);
+    }
+
+    const createdDate = todo.createdAt ? todo.createdAt.slice(0, 10) : '';
+    const updatedDate = todo.updatedAt ? todo.updatedAt.slice(0, 10) : '';
+    const hasBeenUpdated = Boolean(todo.updatedAt && todo.createdAt && todo.updatedAt !== todo.createdAt);
+
+    return Boolean(
+      todo.dueDate &&
+      todo.dueDate > today &&
+      (hasBeenUpdated || (createdDate && createdDate < today)) &&
+      updatedDate === today,
+    );
+  };
 
   const standaloneTasks = goalTodos.filter((todo) => !todo.milestoneId || !milestoneIds.has(todo.milestoneId));
 

@@ -214,16 +214,34 @@ export function useSettingsController() {
         summary.tasks > 0 ? `${summary.tasks} tasks` : null,
         summary.notes > 0 ? `${summary.notes} notes` : null,
         summary.checkIns > 0 ? `${summary.checkIns} check-ins` : null,
+        summary.taskOccurrences > 0 ? `${summary.taskOccurrences} history records` : null,
       ].filter(Boolean);
 
       const countDetails = parts.length > 0 ? parts.join(', ') : '0 items';
+      const totalImported = summary.goals + summary.milestones + summary.tasks + summary.notes + summary.checkIns + summary.taskOccurrences;
 
-      setAlert({
-        show: true,
-        title: 'Data imported',
-        message: `Successfully imported ${countDetails} into your workspace.`,
-        type: 'success',
-      });
+      if (summary.failures > 0 && totalImported === 0) {
+        setAlert({
+          show: true,
+          title: 'Import failed',
+          message: 'None of the items could be imported. Please verify the file data.',
+          type: 'error',
+        });
+      } else if (summary.failures > 0) {
+        setAlert({
+          show: true,
+          title: 'Import completed with warnings',
+          message: `Imported ${countDetails}, but ${summary.failures} item(s) could not be imported.`,
+          type: 'warning',
+        });
+      } else {
+        setAlert({
+          show: true,
+          title: 'Data imported',
+          message: `Successfully imported ${countDetails} into your workspace.`,
+          type: 'success',
+        });
+      }
     } catch (error) {
       console.error('Error importing workspace:', error);
       setAlert({
@@ -379,7 +397,9 @@ export function useSettingsController() {
       ? 'Unsupported'
       : notificationPermission === 'granted'
         ? 'Enabled'
-        : 'Disabled';
+        : notificationPermission === 'denied'
+          ? 'Blocked'
+          : 'Not enabled';
 
   function requestClearLocalCache() {
     setAlert({

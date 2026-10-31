@@ -6,6 +6,8 @@ export interface ImportSummary {
   tasks: number;
   notes: number;
   checkIns: number;
+  taskOccurrences: number;
+  failures: number;
 }
 
 export function parseWorkspaceImport(raw: unknown): WorkspaceExport['data'] {

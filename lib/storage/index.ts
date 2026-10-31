@@ -16,6 +16,7 @@ export {
 export { createNote, deleteNote, getNote, getNotes, updateNote } from './notes';
 export {
   createTodo,
+  createTodoOccurrence,
   deleteTodo,
   getTodo,
   getTodoOccurrences,

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { CheckIn, Goal, Milestone, Todo } from '@/app/types';
+import type { CheckIn, Goal, Milestone, Todo, TodoOccurrence } from '@/app/types';
 import { AppPage } from '@/components/app/shared/AppPage';
 import CreateCheckInModal from '@/components/app/checkins/CreateCheckInModal';
 import GoalCheckIns from '@/components/app/goals/GoalCheckIns';
@@ -15,13 +15,22 @@ import { todayDateOnly } from '@/lib/domain/date-only';
 import { getLatestGoalCheckIn } from '@/lib/domain/checkins';
 import { getGoalProgress, getMilestoneTaskCounts, getNextMilestone } from '@/lib/domain/goals';
 import { sortTodosByActionability } from '@/lib/domain/todos';
-import { getCheckIns, getGoal, getMilestones, getTodos, toggleTodoComplete, updateMilestone } from '@/lib/storage';
+import {
+  getCheckIns,
+  getGoal,
+  getMilestones,
+  getTodoOccurrences,
+  getTodos,
+  toggleTodoComplete,
+  updateMilestone,
+} from '@/lib/storage';
 import { WORKSPACE_SYNC_EVENT } from '@/lib/workspace-sync-events';
 
 export default function GoalExecutionView({ goalId }: { goalId: string }) {
   const [goal, setGoal] = useState<Goal | null>(null);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
+  const [occurrences, setOccurrences] = useState<TodoOccurrence[]>([]);
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
   const [today, setToday] = useState('');
   const [loading, setLoading] = useState(true);
@@ -37,11 +46,12 @@ export default function GoalExecutionView({ goalId }: { goalId: string }) {
     setRefreshing(true);
     setError(null);
     try {
-      const [nextGoal, nextMilestones, nextTodos, nextCheckIns] = await Promise.all([
+      const [nextGoal, nextMilestones, nextTodos, nextCheckIns, nextOccurrences] = await Promise.all([
         getGoal(goalId),
         getMilestones(),
         getTodos(),
         getCheckIns(),
+        getTodoOccurrences(),
       ]);
       const goalMilestones = nextMilestones.filter((milestone) => milestone.goalId === goalId);
       const goalMilestoneIds = new Set(goalMilestones.map((milestone) => milestone.id));
@@ -54,6 +64,7 @@ export default function GoalExecutionView({ goalId }: { goalId: string }) {
       setMilestones(goalMilestones);
       setTodos(goalTodos);
       setCheckIns(goalCheckIns);
+      setOccurrences(nextOccurrences);
       setToday(todayDateOnly());
     } catch {
       setError('This goal could not be loaded. Check your connection and try again.');
@@ -87,7 +98,10 @@ export default function GoalExecutionView({ goalId }: { goalId: string }) {
   const milestonesById = useMemo(() => new Map(milestones.map((milestone) => [milestone.id, milestone])), [milestones]);
   const taskCounts = useMemo(() => getMilestoneTaskCounts(orderedMilestones, goalTodos), [goalTodos, orderedMilestones]);
   const nextMilestoneId = useMemo(() => goal ? getNextMilestone(goal.id, orderedMilestones)?.id ?? null : null, [goal, orderedMilestones]);
-  const progress = useMemo(() => goal ? getGoalProgress(goal, milestones, goalTodos) : 0, [goal, goalTodos, milestones]);
+  const progress = useMemo(
+    () => goal ? getGoalProgress(goal, milestones, goalTodos, { today: effectiveToday, occurrences }) : 0,
+    [effectiveToday, goal, goalTodos, milestones, occurrences],
+  );
   const lastCheckIn = useMemo(() => getLatestGoalCheckIn(goalId, checkIns), [checkIns, goalId]);
 
   const openTaskModal = (milestoneId: string | null = null) => {

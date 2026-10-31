@@ -2,7 +2,7 @@ import { differenceInCalendarDays } from 'date-fns';
 import type { CheckIn, Goal, Milestone, Todo } from '../../app/types/index.ts';
 import { getLatestGoalCheckIn } from './checkins.ts';
 import { parseDateOnly } from './date-only.ts';
-import { getGoalProgress, getNextMilestone, sortGoalsForOverview } from './goals.ts';
+import { getGoalProgress, getNextMilestone, sortGoalsForOverview, type GoalProgressContext } from './goals.ts';
 import { sortTodosByActionability } from './todos.ts';
 
 export const CHECK_IN_STALE_DAYS = 7;
@@ -33,14 +33,14 @@ function sortTodosForToday(todos: Todo[], today: string): Todo[] {
   return sortTodosByActionability(todos, today);
 }
 
-export { getGoalProgress, getNextMilestone } from './goals.ts';
+export { getGoalProgress, getNextMilestone, type GoalProgressContext } from './goals.ts';
 
 export function getDashboardGoals(
   goals: Goal[],
   milestones: Milestone[],
   todos: Todo[],
   limit = 3,
-  today?: string,
+  context?: string | GoalProgressContext,
 ): DashboardGoalSummary[] {
   return sortGoalsForOverview(goals.filter((goal) => goal.status !== 'completed'))
     .slice(0, limit)
@@ -48,7 +48,7 @@ export function getDashboardGoals(
       goal,
       hasMilestones: milestones.some((milestone) => milestone.goalId === goal.id),
       nextMilestone: getNextMilestone(goal.id, milestones),
-      progress: getGoalProgress(goal, milestones, todos, today),
+      progress: getGoalProgress(goal, milestones, todos, context),
     }));
 }
 

@@ -10,8 +10,8 @@ const exportPayload = {
     profile: { name: 'Alice', email: 'alice@example.com' },
     goals: [{ id: 'g1', title: 'Goal 1' }],
     milestones: [{ id: 'm1', goalId: 'g1', title: 'Milestone 1', date: '2026-11-01' }],
-    tasks: [{ id: 't1', title: 'Task 1', goalId: 'g1', milestoneId: 'm1' }],
-    taskOccurrences: [],
+    tasks: [{ id: 't1', title: 'Task 1', goalId: 'g1', milestoneId: 'm1', completed: true }],
+    taskOccurrences: [{ id: 'occ1', todoId: 't1', occurrenceDate: '2026-10-31' }],
     notes: [{ id: 'n1', title: 'Note 1', content: 'Content' }],
     checkIns: [{ id: 'c1', date: '2026-10-31', mood: 'great', energy: 'high' }],
   },
@@ -22,6 +22,9 @@ assert.equal(parsed1.goals.length, 1);
 assert.equal(parsed1.goals[0].title, 'Goal 1');
 assert.equal(parsed1.milestones.length, 1);
 assert.equal(parsed1.tasks.length, 1);
+assert.equal(parsed1.tasks[0].completed, true);
+assert.equal(parsed1.taskOccurrences.length, 1);
+assert.equal(parsed1.taskOccurrences[0].todoId, 't1');
 assert.equal(parsed1.notes.length, 1);
 assert.equal(parsed1.checkIns.length, 1);
 
@@ -34,6 +37,7 @@ const flatPayload = {
 const parsed2 = parseWorkspaceImport(flatPayload);
 assert.equal(parsed2.goals.length, 1);
 assert.equal(parsed2.tasks.length, 1);
+assert.equal(parsed2.taskOccurrences.length, 0);
 assert.equal(parsed2.milestones.length, 0);
 assert.equal(parsed2.notes.length, 0);
 assert.equal(parsed2.checkIns.length, 0);

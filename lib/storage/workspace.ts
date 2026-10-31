@@ -2,7 +2,7 @@ import type { WorkspaceExport } from './types';
 import { apiRequest } from './api';
 import { createGoal } from './goals';
 import { createMilestone } from './milestones';
-import { createTodo } from './todos';
+import { createTodo, createTodoOccurrence } from './todos';
 import { createNote } from './notes';
 import { createCheckIn } from './checkins';
 import { parseWorkspaceImport, type ImportSummary } from '../domain/workspace';
@@ -18,12 +18,15 @@ export async function importWorkspaceData(raw: unknown): Promise<ImportSummary> 
 
   const goalIdMap = new Map<string, string>();
   const milestoneIdMap = new Map<string, string>();
+  const taskIdMap = new Map<string, string>();
 
   let goalsCount = 0;
   let milestonesCount = 0;
   let tasksCount = 0;
   let notesCount = 0;
   let checkInsCount = 0;
+  let occurrencesCount = 0;
+  let failuresCount = 0;
 
   for (const item of data.goals) {
     if (!item.title) continue;
@@ -42,6 +45,7 @@ export async function importWorkspaceData(raw: unknown): Promise<ImportSummary> 
       }
       goalsCount++;
     } catch (e) {
+      failuresCount++;
       console.error('Failed to import goal:', item.title, e);
     }
   }
@@ -49,7 +53,10 @@ export async function importWorkspaceData(raw: unknown): Promise<ImportSummary> 
   for (const item of data.milestones) {
     if (!item.title || !item.date) continue;
     const targetGoalId = item.goalId ? goalIdMap.get(item.goalId) ?? item.goalId : '';
-    if (!targetGoalId) continue;
+    if (!targetGoalId) {
+      failuresCount++;
+      continue;
+    }
 
     try {
       const created = await createMilestone({
@@ -64,6 +71,7 @@ export async function importWorkspaceData(raw: unknown): Promise<ImportSummary> 
       }
       milestonesCount++;
     } catch (e) {
+      failuresCount++;
       console.error('Failed to import milestone:', item.title, e);
     }
   }
@@ -74,20 +82,42 @@ export async function importWorkspaceData(raw: unknown): Promise<ImportSummary> 
     const targetMilestoneId = item.milestoneId ? milestoneIdMap.get(item.milestoneId) ?? item.milestoneId : undefined;
 
     try {
-      await createTodo({
+      const created = await createTodo({
         title: item.title,
         description: item.description ?? '',
         priority: item.priority ?? 'medium',
         dueDate: item.dueDate,
         category: item.category,
+        completed: Boolean(item.completed),
         recurrence: item.recurrence ?? 'none',
         reminder: item.reminder ?? 'none',
         goalId: targetGoalId,
         milestoneId: targetMilestoneId,
       });
+      if (item.id && created?.id) {
+        taskIdMap.set(item.id, created.id);
+      }
       tasksCount++;
     } catch (e) {
+      failuresCount++;
       console.error('Failed to import task:', item.title, e);
+    }
+  }
+
+  for (const item of data.taskOccurrences) {
+    if (!item.todoId || !item.occurrenceDate) continue;
+    const targetTodoId = taskIdMap.get(item.todoId) ?? item.todoId;
+
+    try {
+      await createTodoOccurrence({
+        todoId: targetTodoId,
+        occurrenceDate: item.occurrenceDate,
+        completedAt: item.completedAt ? String(item.completedAt) : undefined,
+      });
+      occurrencesCount++;
+    } catch (e) {
+      failuresCount++;
+      console.error('Failed to import task occurrence:', item, e);
     }
   }
 
@@ -102,6 +132,7 @@ export async function importWorkspaceData(raw: unknown): Promise<ImportSummary> 
       });
       notesCount++;
     } catch (e) {
+      failuresCount++;
       console.error('Failed to import note:', item.title, e);
     }
   }
@@ -123,6 +154,7 @@ export async function importWorkspaceData(raw: unknown): Promise<ImportSummary> 
       });
       checkInsCount++;
     } catch (e) {
+      failuresCount++;
       console.error('Failed to import check-in:', item.date, e);
     }
   }
@@ -133,5 +165,7 @@ export async function importWorkspaceData(raw: unknown): Promise<ImportSummary> 
     tasks: tasksCount,
     notes: notesCount,
     checkIns: checkInsCount,
+    taskOccurrences: occurrencesCount,
+    failures: failuresCount,
   };
 }

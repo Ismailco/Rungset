@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Goal, GoalCategory, Milestone, Todo } from '@/app/types';
+import type { Goal, GoalCategory, Milestone, Todo, TodoOccurrence } from '@/app/types';
 import CreateGoalModal from '@/components/app/dashboard/CreateGoalModal';
 import GoalSuggestions from '@/components/app/dashboard/GoalSuggestions';
 import GoalsEmptyState from '@/components/app/goals/GoalsEmptyState';
@@ -12,7 +12,7 @@ import { AppPage } from '@/components/app/shared/AppPage';
 import { getGoalProgress, getNextMilestone, sortGoalsForOverview } from '@/lib/domain/goals';
 import { todayDateOnly } from '@/lib/domain/date-only';
 import { getUserFriendlyErrorMessage } from '@/lib/error';
-import { deleteGoal, getGoals, getMilestones, getTodos } from '@/lib/storage';
+import { deleteGoal, getGoals, getMilestones, getTodoOccurrences, getTodos } from '@/lib/storage';
 import { WORKSPACE_SYNC_EVENT } from '@/lib/workspace-sync-events';
 import type { GoalOverviewModel } from '@/components/app/goals/GoalRow';
 
@@ -56,6 +56,7 @@ export default function GoalsPage() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
+  const [occurrences, setOccurrences] = useState<TodoOccurrence[]>([]);
   const [today, setToday] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -75,14 +76,16 @@ export default function GoalsPage() {
     else setRefreshing(true);
 
     try {
-      const [loadedGoals, loadedMilestones, loadedTodos] = await Promise.all([
+      const [loadedGoals, loadedMilestones, loadedTodos, loadedOccurrences] = await Promise.all([
         getGoals(),
         getMilestones(),
         getTodos(),
+        getTodoOccurrences(),
       ]);
       setGoals(loadedGoals);
       setMilestones(loadedMilestones);
       setTodos(loadedTodos);
+      setOccurrences(loadedOccurrences);
       setToday(todayDateOnly());
       setError(null);
     } catch (loadError) {
@@ -118,8 +121,8 @@ export default function GoalsPage() {
     goal,
     hasMilestones: milestones.some((milestone) => milestone.goalId === goal.id),
     nextMilestone: getNextMilestone(goal.id, milestones),
-    progress: getGoalProgress(goal, milestones, todos),
-  })), [filteredGoals, milestones, todos]);
+    progress: getGoalProgress(goal, milestones, todos, { today: today || todayDateOnly(), occurrences }),
+  })), [filteredGoals, milestones, todos, today, occurrences]);
 
   const clearFilters = () => {
     setSearchTerm('');
