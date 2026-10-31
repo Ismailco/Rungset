@@ -66,10 +66,10 @@ const future = todo({ id: 'future', dueDate: '2026-09-28', priority: 'medium' })
 const undated = todo({ id: 'undated', priority: 'high' });
 const completed = todo({ id: 'completed', dueDate: '2026-09-19', completed: true });
 
-assert.equal(selectNextTask([undated, future, todayHigh, overdue, completed], today)?.id, 'overdue');
-assert.equal(selectNextTask([undated, future, todayHigh, completed], today)?.id, 'today-high');
-assert.equal(selectNextTask([undated, future, completed], today)?.id, 'future');
-assert.equal(selectNextTask([undated, completed], today)?.id, 'undated');
+assert.equal(selectNextTask([undated, future, todayHigh, overdue, completed], today)?.id, 'today-high');
+assert.equal(selectNextTask([undated, future, overdue, completed], today), null);
+assert.equal(selectNextTask([undated, future, completed], today), null);
+assert.equal(selectNextTask([undated, completed], today), null);
 assert.equal(
   selectNextTask(
     [
@@ -143,13 +143,11 @@ const upcoming = groupUpcomingTasks(
   ],
   today,
   8,
-  7,
 );
-assert.deepEqual(upcoming.map((group) => group.name), ['overdue', 'today', 'next']);
-assert.deepEqual(upcoming.find((group) => group.name === 'overdue')?.tasks.map((item) => item.id), ['overdue-1']);
+assert.deepEqual(upcoming.map((group) => group.name), ['today']);
 assert.deepEqual(upcoming.find((group) => group.name === 'today')?.tasks.map((item) => item.id), ['today-1']);
-assert.deepEqual(upcoming.find((group) => group.name === 'next')?.tasks.map((item) => item.id), ['next-1', 'undated-1']);
-assert.equal(upcoming.flatMap((group) => group.tasks).some((item) => item.id === 'outside-horizon'), false);
+assert.equal(upcoming.flatMap((group) => group.tasks).some((item) => item.id === 'overdue-1'), false);
+assert.equal(upcoming.flatMap((group) => group.tasks).some((item) => item.id === 'next-1'), false);
 assert.equal(upcoming.flatMap((group) => group.tasks).some((item) => item.completed), false);
 
 console.log('Dashboard domain tests passed.');

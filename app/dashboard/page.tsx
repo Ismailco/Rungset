@@ -21,6 +21,7 @@ import {
   type DashboardReviewGoal,
 } from '@/lib/domain/dashboard';
 import { todayDateOnly } from '@/lib/domain/date-only';
+import { resolveTodoGoalId } from '@/lib/domain/todos';
 import {
   getCheckIns,
   getGoals,
@@ -85,14 +86,19 @@ export default function DashboardPage() {
     [milestones],
   );
   const nextTask = today ? selectNextTask(todos, today) : null;
-  const nextTaskGoal = nextTask?.goalId ? goalsById.get(nextTask.goalId) ?? null : null;
+  const effectiveGoalId = nextTask
+    ? resolveTodoGoalId(nextTask, milestonesById)
+    : null;
+  const nextTaskGoal = effectiveGoalId
+    ? goalsById.get(effectiveGoalId) ?? null
+    : null;
   const nextTaskMilestone = nextTask?.milestoneId
     ? milestonesById.get(nextTask.milestoneId) ?? null
     : null;
   const nextTaskProgress = nextTaskGoal
-    ? getGoalProgress(nextTaskGoal, milestones, todos)
+    ? getGoalProgress(nextTaskGoal, milestones, todos, today)
     : null;
-  const dashboardGoals = getDashboardGoals(goals, milestones, todos);
+  const dashboardGoals = getDashboardGoals(goals, milestones, todos, 3, today);
   const reviewGoals = today ? getGoalsNeedingCheckIn(goals, checkIns, today) : [];
   const upcomingGroups = today ? groupUpcomingTasks(todos, today) : [];
   const activeGoalCount = goals.filter((goal) => goal.status !== 'completed').length;
