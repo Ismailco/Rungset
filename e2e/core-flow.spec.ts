@@ -116,7 +116,7 @@ test('a user can execute, review, preserve, and export a goal plan', async ({ pa
   await page.goto('/settings');
 
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export JSON' }).click();
+  await page.getByRole('button', { name: /Export (Data|JSON)/ }).click();
   const exportFile = await download;
   expect(exportFile.suggestedFilename()).toMatch(/^rungset-workspace-.*\.json$/);
   const exportContent = await exportFile.createReadStream();
