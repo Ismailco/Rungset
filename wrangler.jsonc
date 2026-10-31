@@ -10,17 +10,16 @@
   "compatibility_flags": ["nodejs_compat"],
   "routes": [
     {
-      "pattern": "app.rungset.com",
-      "custom_domain": true,
-    },
-    // Legacy domains remain attached until DNS and redirect cutover is complete.
-    {
-      "pattern": "app.goalgenius.online",
-      "custom_domain": true,
+      "pattern": "www.app.goalgenius.online/*",
+      "zone_name": "goalgenius.online",
     },
     {
-      "pattern": "www.app.goalgenius.online",
-      "custom_domain": true,
+      "pattern": "app.goalgenius.online/*",
+      "zone_name": "goalgenius.online",
+    },
+    {
+      "pattern": "app.rungset.com/*",
+      "zone_name": "rungset.com",
     },
   ],
   // Keep local Wrangler development on localhost instead of inheriting
